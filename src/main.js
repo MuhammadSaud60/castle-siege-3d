@@ -138,7 +138,7 @@ const state = {
   keepMaxHp: 100,
   kills: 0, // enemies defeated (arrow kills only)
   goldEarned: 0, // total gold gained from income ticks and wave rewards
-  houseCount: 0, // houses built by the player (Phase 1 village houses are scenery)
+  houseCount: 0, // houses built by the player
   farmCount: 0,
   placing: null, // null or one of 'wall' | 'house' | 'farm' | 'tower'
 };
@@ -514,7 +514,7 @@ function smoothstep(a, b, x) {
 
 // The river winds west to east across the north half of the map, well
 // clear of the castle (it never comes closer than about 115 units to the
-// centre, so it never touches the village or the build area).
+// centre, so it never touches the keep or the build area).
 function riverZ(x) {
   return -(95 + 55 * Math.sin(x * 0.011 + 0.7) + 22 * Math.sin(x * 0.027 + 2.1));
 }
@@ -663,7 +663,7 @@ grid.material.opacity = 0.1;
 grid.position.y = 0.04;
 scene.add(grid);
 
-// Stone courtyard disc inside the walls.
+// Stone courtyard disc under the keep.
 const courtyard = new THREE.Mesh(
   new THREE.CircleGeometry(13, 40),
   new THREE.MeshStandardMaterial({ map: slabTex, color: 0xffffff, roughness: 1 }),
@@ -830,10 +830,13 @@ function deselect() {
 }
 
 // ---------------------------------------------------------------------------
-// The castle: keep, walls, corner towers, gate
+// The castle: the Stronghold keep and its gate (Phase 2). The game starts
+// with ONLY the keep: no wall ring, no corner towers, no village houses.
+// The player builds walls, houses, farms and towers himself with the
+// build buttons. The gate, torches, banners and dirt path stay with the
+// keep.
 // ---------------------------------------------------------------------------
-const WALL_H = 4.5;
-const HALF = 18; // half side of the square wall ring
+const HALF = 18; // the gate stands HALF units south of the keep
 
 // Keep: tall central tower with a flag.
 const keep = new THREE.Group();
@@ -885,34 +888,8 @@ for (const bx of [-2.2, 2.2]) {
 scene.add(keep);
 makeSelectable(keep, 'Stone Keep');
 
-// Wall ring. North wall is solid, east and west are solid, south has a gate gap.
-const northWall = new THREE.Group();
-box(37.4, WALL_H, 1.4, stoneMat, 0, WALL_H / 2, -HALF, northWall);
-addMerlonsX(northWall, 0, WALL_H, 37.4, -HALF);
-scene.add(northWall);
-makeSelectable(northWall, 'North Wall');
-
-const eastWall = new THREE.Group();
-box(1.4, WALL_H, 34.6, stoneMat, HALF, WALL_H / 2, 0, eastWall);
-addMerlonsZ(eastWall, 0, WALL_H, 34.6, HALF);
-scene.add(eastWall);
-makeSelectable(eastWall, 'East Wall');
-
-const westWall = new THREE.Group();
-box(1.4, WALL_H, 34.6, stoneMat, -HALF, WALL_H / 2, 0, westWall);
-addMerlonsZ(westWall, 0, WALL_H, 34.6, -HALF);
-scene.add(westWall);
-makeSelectable(westWall, 'West Wall');
-
-const southWall = new THREE.Group();
-box(15.7, WALL_H, 1.4, stoneMat, -10.85, WALL_H / 2, HALF, southWall);
-box(15.7, WALL_H, 1.4, stoneMat, 10.85, WALL_H / 2, HALF, southWall);
-addMerlonsX(southWall, -10.85, WALL_H, 15.7, HALF);
-addMerlonsX(southWall, 10.85, WALL_H, 15.7, HALF);
-scene.add(southWall);
-makeSelectable(southWall, 'South Wall');
-
-// Gatehouse: wooden posts and beam over the gap in the south wall.
+// Gatehouse: wooden posts and beam, standing alone south of the keep
+// (there is no wall ring any more; the player builds the walls).
 const gate = new THREE.Group();
 box(0.9, 5.6, 0.9, woodMat, -3.3, 2.8, HALF, gate);
 box(0.9, 5.6, 0.9, woodMat, 3.3, 2.8, HALF, gate);
@@ -954,49 +931,14 @@ for (const tx of [-4.8, 4.8]) {
   torchLights.push({ light, phase: 0 });
 }
 
-// Corner towers: cylinders with a cap ring and merlons. They shoot arrows
-// during waves, so each one registers in the towers list.
-function cornerTower(x, z) {
-  const g = new THREE.Group();
-  cylinder(2.4, 2.6, 7.5, stoneMat, x, 3.75, z, g, 18);
-  cylinder(2.75, 2.75, 0.7, stoneDarkMat, x, 7.6, z, g, 18);
-  for (let i = 0; i < 8; i++) {
-    const a = (i / 8) * Math.PI * 2;
-    box(0.7, 0.6, 0.7, stoneMat, x + Math.cos(a) * 2.4, 8.25, z + Math.sin(a) * 2.4, g);
-  }
-  // Small red pennant on a pole above the tower.
-  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.2, 6), woodMat);
-  pole.position.set(x, 9.2, z);
-  pole.castShadow = true;
-  g.add(pole);
-  const penShape = new THREE.Shape();
-  penShape.moveTo(0, 0);
-  penShape.lineTo(1.6, 0.4);
-  penShape.lineTo(0, 0.8);
-  penShape.lineTo(0, 0);
-  const pen = new THREE.Mesh(
-    new THREE.ShapeGeometry(penShape),
-    new THREE.MeshStandardMaterial({ color: 0xd23b2e, side: THREE.DoubleSide, roughness: 0.8 }),
-  );
-  pen.position.set(x + 0.07, 9.9, z);
-  pen.castShadow = true;
-  g.add(pen);
-  scene.add(g);
-  makeSelectable(g, 'Corner Tower');
-  towers.push({ pos: new THREE.Vector3(x, 8, z), cooldown: 0 });
-  return g;
-}
-cornerTower(-HALF, -HALF);
-cornerTower(HALF, -HALF);
-cornerTower(-HALF, HALF);
-cornerTower(HALF, HALF);
-
 // ---------------------------------------------------------------------------
-// Village: houses, trees, rocks
+// Houses, trees, rocks (Phase 2). There is no pre-built village any more:
+// the house() builder below exists only for houses the player builds with
+// the House button. Trees and rocks fill the open land around the keep.
 // ---------------------------------------------------------------------------
 const houseColors = [0xd9a066, 0xc98f5f, 0xe0b070, 0xb98a5a, 0xdba47a, 0xcf9a68];
 const roofColors = [0x8a4b2d, 0x7a3b22, 0x96482a, 0x6e3a24, 0x8a4026, 0x7d3f28];
-let houseColorIdx = 6; // Phase 1 village used indices 0-5
+let houseColorIdx = 0; // player-built houses cycle the colours from the start
 
 const windowLitMat = new THREE.MeshStandardMaterial({
   color: 0xffc46b, emissive: 0xff9d2e, emissiveIntensity: 0.65, roughness: 0.6,
@@ -1032,15 +974,6 @@ function house(x, z, i) {
   makeSelectable(g, 'House');
   return g;
 }
-
-house(-30, 6, 0);
-house(-34, -16, 1);
-house(28, -22, 2);
-house(36, 8, 3);
-house(26, 32, 4);
-house(-28, 28, 5);
-house(62, -40, 6);
-house(-64, 48, 7);
 
 // Place a geometry in the world: rotate around Y, scale uniformly, move.
 const _xformM = new THREE.Matrix4();
@@ -1083,18 +1016,11 @@ const LONE_TREES = [
   [-60, 60], [70, 65], [-100, 40], [100, -60], [30, 110], [-40, 110],
 ];
 
-const VILLAGE_HOUSES = [
-  [-30, 6], [-34, -16], [28, -22], [36, 8], [26, 32], [-28, 28], [62, -40], [-64, 48],
-];
-
 function treeSpotOk(x, z) {
   if (Math.abs(x) > 300 || Math.abs(z) > 300) return false;
   if (Math.hypot(x, z) < 55) return false; // keep the meadow around the castle open
   if (riverDistance(x, z) < 10) return false; // no trees standing in the river
   if (pondDistance(x, z) < 28) return false; // none on the pond shore either
-  for (const [hx, hz] of VILLAGE_HOUSES) {
-    if (Math.hypot(x - hx, z - hz) < 9) return false;
-  }
   return true;
 }
 
@@ -1234,9 +1160,6 @@ function buildRocks() {
     if (Math.hypot(x, z) < 52) return false; // keep the castle ground clear
     if (riverDistance(x, z) < 6.5) return false; // not in the river channel
     if (pondDistance(x, z) < POND_R + 1) return false; // not in the pond
-    for (const [hx, hz] of VILLAGE_HOUSES) {
-      if (Math.hypot(x - hx, z - hz) < 8) return false;
-    }
     return true;
   }
   // Big boulders near the hills.
