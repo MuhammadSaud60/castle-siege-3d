@@ -1,0 +1,39 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Castle Siege 3D</title>
+    <link rel="stylesheet" href="/src/style.css" />
+  </head>
+  <body>
+    <div id="app"></div>
+
+    <div id="hud">
+      <div class="panel" id="title-panel">
+        <h1>Castle Siege 3D</h1>
+        <p id="selected-name">Click a building to select it</p>
+      </div>
+
+      <div class="panel" id="resources">
+        <span>Wood <b id="res-wood">100</b></span>
+        <span>Stone <b id="res-stone">80</b></span>
+        <span>Gold <b id="res-gold">50</b></span>
+        <span>Food <b id="res-food">60</b></span>
+        <span>Population <b id="pop-count">12</b></span>
+      </div>
+
+      <div class="panel" id="actions">
+        <button id="btn-build-wall">Build Wall (10 Stone)</button>
+        <button id="btn-next-wave">Next Wave</button>
+        <p id="wave-status">Wave 0, no enemies yet</p>
+      </div>
+
+      <div class="panel" id="hint">
+        Drag to orbit, scroll to zoom, click a building to select it
+      </div>
+    </div>
+
+    <script type="module" src="/src/main.js"></script>
+  </body>
+</html>

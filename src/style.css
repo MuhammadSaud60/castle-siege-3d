@@ -1,0 +1,126 @@
+/* Castle Siege 3D - HUD and page styles */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  overflow: hidden;
+  font-family: Georgia, 'Times New Roman', serif;
+  background: #87bfe8;
+}
+
+#app,
+#app canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
+}
+
+/* HUD overlay: lets mouse drags pass through except on panels/buttons */
+#hud {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.panel {
+  position: absolute;
+  pointer-events: auto;
+  background: rgba(20, 26, 20, 0.72);
+  color: #f3ead2;
+  border: 1px solid rgba(243, 234, 210, 0.35);
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.35);
+}
+
+#title-panel {
+  top: 14px;
+  left: 14px;
+}
+
+#title-panel h1 {
+  margin: 0;
+  font-size: 22px;
+  letter-spacing: 0.5px;
+  color: #ffd34d;
+}
+
+#title-panel p {
+  margin: 4px 0 0;
+  font-size: 13px;
+  color: #d8cfae;
+}
+
+#resources {
+  top: 14px;
+  right: 14px;
+  display: flex;
+  gap: 16px;
+  font-size: 14px;
+}
+
+#resources b {
+  color: #ffd34d;
+}
+
+#actions {
+  bottom: 14px;
+  left: 14px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+#actions button {
+  pointer-events: auto;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: bold;
+  color: #1c2416;
+  background: #ffd34d;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 14px;
+}
+
+#actions button:hover {
+  background: #ffdf7a;
+}
+
+#actions button.active {
+  background: #7ec850;
+}
+
+#wave-status {
+  margin: 0;
+  font-size: 13px;
+  color: #d8cfae;
+}
+
+#hint {
+  bottom: 14px;
+  left: 50%;
+  transform: translateX(-50%);
+  font-size: 13px;
+  color: #e8e0c4;
+  white-space: nowrap;
+}
+
+@media (max-width: 760px) {
+  #hint {
+    display: none;
+  }
+  #resources {
+    flex-wrap: wrap;
+    gap: 8px;
+    max-width: 46vw;
+  }
+}
