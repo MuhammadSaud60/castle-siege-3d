@@ -1249,6 +1249,8 @@ const resEls = {
   hpFill: document.getElementById('hp-fill'),
 };
 const waveStatusEl = document.getElementById('wave-status');
+const hintEl = document.getElementById('hint');
+const DEFAULT_HINT = hintEl ? hintEl.textContent : '';
 const fallenOverlay = document.getElementById('fallen-overlay');
 const fallenWaveEl = document.getElementById('fallen-wave');
 
@@ -1322,8 +1324,85 @@ const ghostMat = new THREE.MeshStandardMaterial({
   opacity: 0.55,
   roughness: 0.9,
 });
-ghost.visible = false;
-scene.add(ghost);
+// Drag-to-build wall preview: a pooled row of wall-segment groups that
+// shows the straight line while the player drags (Stronghold-style).
+// Shares the ghost material, so it turns green/red with the same rules.
+const wallSegBodyGeo = new THREE.BoxGeometry(4, 3.2, 1.2);
+const wallSegTopGeo = new THREE.BoxGeometry(4, 0.6, 1.2);
+const wallPreview = new THREE.Group();
+wallPreview.visible = false;
+scene.add(wallPreview);
+const wallPreviewSegs = []; // pooled segment groups, created on demand
+
+// Wall drag state: null when not dragging, otherwise the drag start/end
+// in world space. Only used while the wall tool is selected.
+let wallDrag = null;
+
+// Wall segments along a straight drag line, spaced one segment (4 units)
+// apart and snapped to the same 2-unit grid placeWallAt uses, so the
+// preview matches what actually gets built. Duplicate snapped points
+// (possible on diagonal drags) are collapsed.
+function wallDragSegments(x0, z0, x1, z1) {
+  const dx = x1 - x0;
+  const dz = z1 - z0;
+  const len = Math.hypot(dx, dz);
+  const n = Math.max(1, Math.round(len / 4));
+  const pts = [];
+  const seen = new Set();
+  for (let i = 0; i < n; i++) {
+    const t = (i + 0.5) / n;
+    const x = Math.round((x0 + dx * t) / 2) * 2;
+    const z = Math.round((z0 + dz * t) / 2) * 2;
+    const key = x + ',' + z;
+    if (!seen.has(key)) {
+      seen.add(key);
+      pts.push([x, z]);
+    }
+  }
+  return pts;
+}
+
+function updateWallPreview() {
+  if (!wallDrag) {
+    wallPreview.visible = false;
+    return;
+  }
+  const pts = wallDragSegments(wallDrag.x0, wallDrag.z0, wallDrag.x1, wallDrag.z1);
+  const angle = controls.getAzimuthalAngle();
+  while (wallPreviewSegs.length < pts.length) {
+    const g = new THREE.Group();
+    const b = new THREE.Mesh(wallSegBodyGeo, ghostMat);
+    b.position.y = 1.6;
+    g.add(b);
+    const t = new THREE.Mesh(wallSegTopGeo, ghostMat);
+    t.position.y = 3.5;
+    g.add(t);
+    wallPreview.add(g);
+    wallPreviewSegs.push(g);
+  }
+  wallPreviewSegs.forEach((g, i) => {
+    if (i < pts.length) {
+      g.visible = true;
+      g.position.set(pts[i][0], terrainHeight(pts[i][0], pts[i][1]), pts[i][1]);
+      g.rotation.y = angle;
+    } else {
+      g.visible = false;
+    }
+  });
+  wallPreview.visible = true;
+  // Green only when the whole line can be built: every segment in the
+  // build area, on dry land, and the player can afford all of them.
+  const totalCost = pts.length * (COSTS.wall.stone || 0);
+  const allOk =
+    pts.every(([x, z]) => inBuildArea(x, z) && !isInWater(x, z)) &&
+    state.stone >= totalCost;
+  ghostMat.color.setHex(allOk ? 0x7ec850 : 0xd23b2e);
+}
+
+function endWallDrag() {
+  wallDrag = null;
+  wallPreview.visible = false;
+}
 
 function setGhostFor(kind) {
   while (ghost.children.length > 0) ghost.remove(ghost.children[0]);
@@ -1375,9 +1454,14 @@ function resetPlaceButtons() {
 
 function cancelPlacing() {
   state.placing = null;
+  endWallDrag();
   ghost.visible = false;
   resetPlaceButtons();
   deselect();
+  // Left-drag orbits again, and the hint goes back to the default.
+  controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+  controls.touches.ONE = THREE.TOUCH.ROTATE;
+  if (hintEl) hintEl.textContent = DEFAULT_HINT;
 }
 
 function togglePlacing(kind) {
@@ -1392,6 +1476,22 @@ function togglePlacing(kind) {
   const btn = placeBtns[kind];
   btn.classList.add('active');
   placeBtnLabel(btn).textContent = 'Placing';
+  if (kind === 'wall') {
+    // While the wall tool is active, a left-drag draws a wall line
+    // instead of orbiting the camera (OrbitControls does nothing when
+    // its left button is unmapped). Right-drag still pans, the wheel
+    // still zooms, WASD still moves the view.
+    controls.mouseButtons.LEFT = null;
+    controls.touches.ONE = null;
+    if (hintEl) {
+      hintEl.textContent =
+        'Wall: drag on the ground to draw a straight wall, click for one segment. Right-drag or WASD to move the view, Esc to stop.';
+    }
+  } else {
+    controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
+    controls.touches.ONE = THREE.TOUCH.ROTATE;
+    if (hintEl) hintEl.textContent = DEFAULT_HINT;
+  }
 }
 
 for (const [kind, btn] of Object.entries(placeBtns)) {
@@ -1487,8 +1587,14 @@ function placeTowerAt(x, z) {
   setStatus('Tower built at ' + gx + ', ' + gz);
 }
 
+// Build area: buildings must stay near the keep. (For now the old
+// 200x200 square; the next change tightens it to a visible radius.)
+function inBuildArea(x, z) {
+  return Math.abs(x) <= 100 && Math.abs(z) <= 100;
+}
+
 function placeAt(kind, x, z) {
-  if (Math.abs(x) > 100 || Math.abs(z) > 100) {
+  if (!inBuildArea(x, z)) {
     setStatus('Too far out, build closer to the castle');
     return false;
   }
@@ -1509,6 +1615,40 @@ function placeAt(kind, x, z) {
   playSound('build');
   updateHUD();
   return true;
+}
+
+// Drag-to-build: place wall segments along a straight line from the drag
+// start to the drag end. Segments outside the build area or in water are
+// skipped; placement stops when the player runs out of stone. Each
+// segment costs the same as a single-click wall and faces the camera,
+// exactly like a clicked wall does.
+function placeWallLine(x0, z0, x1, z1) {
+  const pts = wallDragSegments(x0, z0, x1, z1);
+  let placed = 0;
+  let skipped = 0;
+  for (const [x, z] of pts) {
+    if (!inBuildArea(x, z) || isInWater(x, z)) {
+      skipped++;
+      continue;
+    }
+    if (!canAfford(COSTS.wall)) break;
+    payCost(COSTS.wall);
+    placeWallAt(x, z);
+    placed++;
+  }
+  if (placed > 0) {
+    playSound('build');
+    updateHUD();
+    setStatus(
+      'Built ' + placed + ' wall segment' + (placed > 1 ? 's' : '') +
+      (skipped > 0 ? ' (' + skipped + ' skipped)' : ''),
+    );
+  } else if (skipped > 0) {
+    setStatus('Too far out, build closer to the castle');
+  } else {
+    setStatus('Not enough resources');
+  }
+  return placed;
 }
 
 // ---------------------------------------------------------------------------
@@ -2254,6 +2394,15 @@ function groundPointFromEvent(e) {
 }
 
 renderer.domElement.addEventListener('pointermove', (e) => {
+  if (wallDrag) {
+    const p = groundPointFromEvent(e);
+    if (p) {
+      wallDrag.x1 = p.x;
+      wallDrag.z1 = p.z;
+      updateWallPreview();
+    }
+    return;
+  }
   if (!state.placing) return;
   const p = groundPointFromEvent(e);
   if (!p) {
@@ -2279,8 +2428,37 @@ let downY = 0;
 renderer.domElement.addEventListener('pointerdown', (e) => {
   downX = e.clientX;
   downY = e.clientY;
+  // With the wall tool selected, a left-drag draws a wall line: start
+  // the drag here (the camera does not orbit because the left button
+  // is unmapped while this tool is active).
+  if (state.placing === 'wall' && (e.button === 0 || e.pointerType === 'touch')) {
+    const p = groundPointFromEvent(e);
+    if (p) {
+      wallDrag = { x0: p.x, z0: p.z, x1: p.x, z1: p.z };
+      ghost.visible = false;
+      updateWallPreview();
+    }
+  }
+});
+renderer.domElement.addEventListener('pointercancel', () => {
+  endWallDrag();
 });
 renderer.domElement.addEventListener('pointerup', (e) => {
+  if (wallDrag) {
+    const wasClick = Math.hypot(e.clientX - downX, e.clientY - downY) <= 5;
+    const { x0, z0, x1, z1 } = wallDrag;
+    endWallDrag();
+    if (wasClick) {
+      // A click without a drag is one wall segment, as before.
+      if (state.placing) {
+        const p = groundPointFromEvent(e);
+        if (p) placeAt(state.placing, p.x, p.z);
+      }
+    } else {
+      placeWallLine(x0, z0, x1, z1);
+    }
+    return;
+  }
   if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // it was a drag
   if (state.placing) {
     const p = groundPointFromEvent(e);
@@ -2453,6 +2631,15 @@ window.__castle = {
     kind: state.placing,
     ghostRotationY: ghost.rotation.y,
     ghostVisible: ghost.visible,
+    wallDrag: wallDrag
+      ? {
+          x0: wallDrag.x0,
+          z0: wallDrag.z0,
+          x1: wallDrag.x1,
+          z1: wallDrag.z1,
+          segments: wallDragSegments(wallDrag.x0, wallDrag.z0, wallDrag.x1, wallDrag.z1).length,
+        }
+      : null,
   }),
   groundSize: () => GROUND_SIZE,
   incomePerTick,
