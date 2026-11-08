@@ -5,6 +5,21 @@ the browser. Built with Vite + Three.js. All 3D content is procedural low-poly
 geometry, and all audio files are bundled locally, there are no external
 models, images or CDN links, so the game is fully self-contained.
 
+## Main goal (Saud's vision): Coding Battle
+
+The finished game is a coding battle: the player builds their kingdom by
+completing code challenges. Every building and every soldier costs one
+solved code challenge, and the challenge matches the thing it unlocks: a
+wall needs an Easy challenge, a tower an Easy-Medium one, a factory or a
+soldier a Medium one, a barracks a Hard one. The more a thing helps, the
+harder its challenge. There are 21 challenges in the bank, three variants
+per kind, each with visible tests and two hidden tests, run in a Web
+Worker with a time limit so an infinite loop cannot hang the game. While
+a challenge is open the battle pauses. A solve buys exactly one
+placement: place the building (or train the soldier) and the grant is
+spent, so the next building needs a fresh challenge. The coding layer is
+live now, not a later step: it is how the whole kingdom gets built.
+
 ## How to run
 
 ```bash
@@ -21,23 +36,49 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
 - Drag to orbit the camera, scroll to zoom.
 - Click a building to select it (it gets a gold outline and its name shows in
   the top left).
-- `Build Wall`, `Build House`, `Build Farm` and `Build Tower` are icon
-  buttons (brick wall, house, wheat, tower) with the cost shown as a tiny
-  label under the icon, and a tooltip with the full action name. Clicking
-  one enters placement mode: move the mouse over the ground to preview the
-  building, click to build it (grid snapped). Press Esc or the button again
-  to cancel. A house raises the population cap by 4 and adds +1 Gold per
-  income tick, a farm adds +2 Food per tick, a tower shoots arrows at
-  enemies during waves. Costs: wall 10 Stone, house 20 Wood, farm 15 Wood,
-  tower 30 Stone + 10 Wood.
+- `Build Wall`, `Build House`, `Build Farm`, `Build Tower`, `Build Factory`
+  and `Build Barracks` are icon buttons (brick wall, house, wheat, tower,
+  factory, barracks) with the cost shown as a tiny label under the icon,
+  and a tooltip with the full action name. Clicking one first checks the
+  cost, then opens a code challenge for that kind: solve it in the editor
+  and click `Place building` to enter placement mode, then move the mouse
+  over the ground to preview the building and click to build it (grid
+  snapped). One solved challenge buys exactly one building: after it is
+  placed, placement ends and the next building needs a fresh challenge.
+  With the Wall tool, drag to build a whole straight wall line in one go;
+  that line is the one placement the solve bought. Press Esc or the button
+  again to cancel. A house raises the population cap by 4 and adds +1 Gold
+  per income tick, a farm adds +2 Food per tick, a tower shoots arrows at
+  enemies during waves, a factory adds +2 Stone per tick, a barracks
+  unlocks soldier training and raises the army cap by 4. Costs: wall 10
+  Stone, house 20 Wood, farm 15 Wood, tower 30 Stone + 10 Wood, factory
+  25 Wood + 15 Stone, barracks 30 Wood + 20 Stone. `Train Soldier` costs
+  20 Gold plus one solved soldier challenge (Medium), needs a barracks,
+  and trains one royal-blue swordsman (HP 30, 1 damage per swing, army
+  cap 8 + 4 per barracks). The `Remove` button demolishes a building with
+  no refund.
 - Resources grow every 5 seconds: +2 Wood, +2 Food, +3 Gold, +1 Stone, plus
-  bonuses from farms and houses.
+  bonuses from farms, houses and factories.
 - `Next Wave` (crossed swords icon) sends enemies marching from the map
-  edge toward the keep (wave 1 has 3 enemies, each later wave adds 2).
-  Corner towers and built towers shoot arrows at enemies in range, 2 hits
-  kill one. An enemy that reaches the keep deals 10 damage. Clearing a
-  wave pays +20 Gold. If Keep HP reaches 0 the castle has fallen and the
-  page offers a restart.
+  edge toward the keep. Wave 1 has 3 foot soldiers, each later wave adds
+  2, and from wave 6 the horde grows by one extra enemy per wave, so wave
+  10 has 26 enemies. Foot soldiers come from wave 1, cavalry riders (fast,
+  tough, heavy hits) from wave 3, armoured brutes (slow, very tough,
+  heaviest hits) from wave 4, up to 4 cavalry and 3 brutes in the late
+  waves. Enemies walk straight at the keep and stop to attack whatever
+  blocks them: walls, houses, farms, towers, factories and barracks all
+  have hit points and can be destroyed. A player-built tower shoots one
+  arrow per second at the nearest enemy in range (26 units), 2 hits kill
+  a foot soldier. An enemy that reaches the keep attacks it every second:
+  5 damage per foot soldier swing, 15 per cavalry swing, 20 per brute
+  swing. Clearing a wave pays +20 Gold. Win by clearing wave 10; if Keep
+  HP reaches 0 the castle has fallen. Both endings show a screen with the
+  run stats (waves cleared, enemies defeated, gold earned, buildings
+  built, challenges solved, time played) and a button to play again.
+  Balance note: an empty castle falls on wave 1, walls alone cannot win
+  (nothing shoots back), and a kingdom of towers, soldiers and a wall ring
+  wins wave 10 with the keep hurt but standing. Build at least one tower
+  before calling the first wave.
 - Sound: the speaker icon button (or the `M` key) toggles sound, and the
   choice is remembered. Music starts after your first click, browsers block
   audio before any interaction. Arrow shots, hits, deaths, building, the
@@ -122,6 +163,38 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
   view across the map (right-drag pans too), since left-drag only orbits
   the castle. The camera bounds are unchanged (target inside radius 110,
   camera inside radius 220), so the terrain edge stays hidden.
+- **Coding Battle (done):** The game Saud asked for: every building and
+  soldier costs one solved code challenge. The bank has 21 challenges in
+  `src/challenges.js`, three variants per kind, graded Easy (wall, house,
+  farm), Easy-Medium (tower), Medium (factory, soldier) and Hard
+  (barracks), each with a story, visible tests and two hidden tests. The
+  panel (`src/challengePanel.js`) runs code in a Web Worker
+  (`src/challengeRunner.js`) with a time limit, shows per-test results,
+  and pauses the battle while open. Build buttons and Train Soldier all
+  go through the panel, with affordability and army-cap checks before it
+  opens. A solved challenge buys exactly one placement: the grant is
+  spent when the building lands (or when a wall drag finishes), and
+  cancelling also spends it. The start screen, victory and game-over
+  screens with run stats, How to Play, and a full reset (`Play again`)
+  are all in.
+- **Balance pass and full playthrough (done, final):** The numbers were
+  measured with a combat simulator (`balance-sim.py`, a faithful
+  re-implementation of the combat loop) and then verified in a real
+  headless playthrough (`playthrough-test.py`). The simulator showed the
+  shipped game was upside down: waves 2-3 could kill a two-tower castle
+  outright, while waves 4-10 never scratched a four-tower one. The fixes:
+  towers fire one arrow per second (was one per 0.8s); cavalry arrive
+  from wave 3 and brutes from wave 4 (both one wave later), up to 4
+  cavalry and 3 brutes late; wave size grows by one extra enemy per wave
+  from wave 6, so wave 10 has 26 enemies (135 across the whole game).
+  The same pass fixed the challenge gate: a solved challenge used to
+  leave placement armed, so one solve bought unlimited buildings of that
+  kind; now one solve buys one placement, as the Phase 2 design said.
+  The playthrough test wins wave 10 the real way (real Start click, real
+  challenge solves, real canvas placements, real Next Wave clicks, 6
+  towers, a factory, a barracks, a wall line and 8 soldiers) with the
+  keep alive but pressured, and a second run with nothing built loses on
+  wave 1. Nothing else about the economy, costs or unit stats changed.
 
 ## Audio credits
 
