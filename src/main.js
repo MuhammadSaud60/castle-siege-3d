@@ -1544,7 +1544,10 @@ for (const [kind, btn] of Object.entries(placeBtns)) {
 }
 
 window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.placing) cancelPlacing();
+  if (e.key === 'Escape') {
+    if (state.placing) cancelPlacing();
+    else if (selected) deselect();
+  }
   if (e.key === 'm' || e.key === 'M') {
     unlockAudio();
     toggleMute();
@@ -1970,7 +1973,41 @@ king.group.position.set(7.5, terrainHeight(7.5, 7.5), 7.5);
 king.group.rotation.y = KING_FACE;
 scene.add(king.group);
 makeSelectable(king.group, 'The King');
-const kingBaseY = king.group.position.y;
+
+// King movement (Stronghold-style RTS control): when the King is
+// selected, a click on the ground orders him to walk there. He may walk
+// anywhere on the map; enemies never target him.
+const KING_SPEED = 4; // faster than a foot soldier (2.55), slower than cavalry (4.2)
+let kingTarget = null; // { x, z } while he is walking somewhere
+// Gold ring under the King while he is selected.
+const kingSelectRing = new THREE.Mesh(
+  new THREE.RingGeometry(1.15, 1.4, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffd34d, side: THREE.DoubleSide, transparent: true, opacity: 0.9 }),
+);
+kingSelectRing.rotation.x = -Math.PI / 2;
+kingSelectRing.visible = false;
+scene.add(kingSelectRing);
+// Pulsing marker at the King's destination while he walks.
+const kingDestMarker = new THREE.Mesh(
+  new THREE.RingGeometry(0.9, 1.15, 32),
+  new THREE.MeshBasicMaterial({ color: 0xffd34d, side: THREE.DoubleSide, transparent: true, opacity: 0.85 }),
+);
+kingDestMarker.rotation.x = -Math.PI / 2;
+kingDestMarker.visible = false;
+scene.add(kingDestMarker);
+
+function orderKingMove(x, z) {
+  const r = Math.hypot(x, z);
+  if (r > 300) {
+    const s = 300 / r;
+    x *= s;
+    z *= s;
+  }
+  kingTarget = { x, z };
+  kingDestMarker.position.set(x, terrainHeight(x, z) + 0.08, z);
+  kingDestMarker.visible = true;
+  setStatus('The King marches to ' + Math.round(x) + ', ' + Math.round(z));
+}
 
 function createEnemy(x, z, speed, variant = 0) {
   const s = createSoldier(variant);
@@ -2686,10 +2723,21 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   const hits = raycaster.intersectObjects(selectables, true);
   if (hits.length > 0) {
     const root = hits[0].object.userData.selectRoot;
-    if (root) select(root);
-  } else {
-    deselect();
+    if (root) {
+      // Clicking the King while he is selected deselects him.
+      if (selected === king.group && root === king.group) deselect();
+      else select(root);
+      return;
+    }
   }
+  // A ground click while the King is selected orders him to walk there.
+  // (A drag is already filtered out above, so this is a real click.)
+  if (selected === king.group) {
+    const p = groundPointFromEvent(e);
+    if (p) orderKingMove(p.x, p.z);
+    return;
+  }
+  deselect();
 });
 
 
@@ -2714,12 +2762,45 @@ function animate() {
   elapsed += delta;
   // Gentle flag wave.
   flag.rotation.y = Math.sin(elapsed * 2.2) * 0.18;
-  // The King idles by the keep: a gentle breathing bob, a slow sway
-  // and a slight swing of the arms.
-  king.group.position.y = kingBaseY + Math.sin(elapsed * 1.1) * 0.05;
-  king.group.rotation.y = KING_FACE + Math.sin(elapsed * 0.7) * 0.04;
-  king.limbs.armL.rotation.x = Math.sin(elapsed * 1.1) * 0.06;
-  king.limbs.armR.rotation.x = -Math.sin(elapsed * 1.1) * 0.06;
+  // The King walks when ordered, otherwise idles by the keep: a gentle
+  // breathing bob, a slow sway and a slight swing of the arms.
+  if (kingTarget) {
+    const kp = king.group.position;
+    const kdx = kingTarget.x - kp.x;
+    const kdz = kingTarget.z - kp.z;
+    const kd = Math.hypot(kdx, kdz);
+    if (kd < 0.6) {
+      kingTarget = null;
+      kingDestMarker.visible = false;
+    } else {
+      const kstep = Math.min(KING_SPEED * delta, kd);
+      kp.x += (kdx / kd) * kstep;
+      kp.z += (kdz / kd) * kstep;
+      king.group.rotation.y = Math.atan2(kdx, kdz);
+      // Walk: robe sways, arms swing, a small bob as he glides along.
+      const kw = Math.sin(elapsed * 6);
+      kp.y = terrainHeight(kp.x, kp.z) + Math.abs(kw) * 0.08;
+      king.limbs.armL.rotation.x = -kw * 0.5;
+      king.limbs.armR.rotation.x = kw * 0.5;
+    }
+  }
+  if (!kingTarget) {
+    king.group.position.y = terrainHeight(king.group.position.x, king.group.position.z) + Math.sin(elapsed * 1.1) * 0.05;
+    king.group.rotation.y = KING_FACE + Math.sin(elapsed * 0.7) * 0.04;
+    king.limbs.armL.rotation.x = Math.sin(elapsed * 1.1) * 0.06;
+    king.limbs.armR.rotation.x = -Math.sin(elapsed * 1.1) * 0.06;
+  }
+  // Selection ring follows the King; the destination marker pulses.
+  if (selected === king.group) {
+    kingSelectRing.position.set(king.group.position.x, terrainHeight(king.group.position.x, king.group.position.z) + 0.07, king.group.position.z);
+    kingSelectRing.visible = true;
+  } else {
+    kingSelectRing.visible = false;
+  }
+  if (kingDestMarker.visible) {
+    const pulse = 1 + Math.sin(elapsed * 4) * 0.12;
+    kingDestMarker.scale.set(pulse, pulse, 1);
+  }
   // The wall ghost follows the camera angle, so the player sees the
   // angle the wall will be placed at before clicking.
   if (state.placing === 'wall') ghost.rotation.y = controls.getAzimuthalAngle();
@@ -2858,6 +2939,19 @@ window.__castle = {
         }
       : null,
   }),
+  kingMove: () => ({
+    target: kingTarget ? { x: +kingTarget.x.toFixed(1), z: +kingTarget.z.toFixed(1) } : null,
+    moving: kingTarget !== null,
+    selected: selected === king.group,
+    speed: KING_SPEED,
+    markerVisible: kingDestMarker.visible,
+    ringVisible: kingSelectRing.visible,
+  }),
+  screenPoint: (x, y, z) => {
+    const v = new THREE.Vector3(x, y, z).project(camera);
+    if (v.z > 1) return null;
+    return [+(((v.x + 1) / 2) * window.innerWidth).toFixed(1), +(((1 - v.y) / 2) * window.innerHeight).toFixed(1)];
+  },
   groundSize: () => GROUND_SIZE,
   buildRadius: () => BUILD_RADIUS,
   inBuildArea: (x, z) => inBuildArea(x, z),
