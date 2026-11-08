@@ -156,6 +156,15 @@ const TOWER_RANGE = 26;
 const TOWER_FIRE_INTERVAL = 0.8;
 const ARROW_SPEED = 32;
 
+// Build limit: wall, house, farm and tower may only be placed within
+// this radius of the keep (0, 0). 75 units covers the courtyard (radius
+// 13) and leaves room for a wall ring around the keep at about 45-55
+// with houses and towers behind it, while the river stays 115+ units
+// away and the pond about 160 away, so the whole build area is dry
+// land. The old limit was a 200x200 square, which felt like building
+// anywhere on the map.
+const BUILD_RADIUS = 75;
+
 // Towers that shoot during waves: { pos: Vector3 (arrow origin), cooldown }
 const towers = [];
 // Enemies alive right now: { group, hp, speed, phase }
@@ -650,6 +659,22 @@ courtyard.rotation.x = -Math.PI / 2;
 courtyard.position.y = 0.03;
 courtyard.receiveShadow = true;
 scene.add(courtyard);
+
+// Visible build limit: a subtle amber ring on the ground at the build
+// radius, following the terrain so it never clips into the hills. It
+// shows the player exactly how far from the keep he can build.
+const boundaryPts = [];
+for (let i = 0; i <= 128; i++) {
+  const a = (i / 128) * Math.PI * 2;
+  const bx = Math.cos(a) * BUILD_RADIUS;
+  const bz = Math.sin(a) * BUILD_RADIUS;
+  boundaryPts.push(new THREE.Vector3(bx, terrainHeight(bx, bz) + 0.4, bz));
+}
+const boundaryRing = new THREE.LineLoop(
+  new THREE.BufferGeometry().setFromPoints(boundaryPts),
+  new THREE.LineBasicMaterial({ color: 0xd9a441, transparent: true, opacity: 0.55 }),
+);
+scene.add(boundaryRing);
 
 // ---------------------------------------------------------------------------
 // Horizon: fog + edge-blend skirt (Phase 8, mountains removed in Phase 9)
@@ -1587,15 +1612,14 @@ function placeTowerAt(x, z) {
   setStatus('Tower built at ' + gx + ', ' + gz);
 }
 
-// Build area: buildings must stay near the keep. (For now the old
-// 200x200 square; the next change tightens it to a visible radius.)
+// Build area: a circle around the keep, not the old 200x200 square.
 function inBuildArea(x, z) {
-  return Math.abs(x) <= 100 && Math.abs(z) <= 100;
+  return Math.hypot(x, z) <= BUILD_RADIUS;
 }
 
 function placeAt(kind, x, z) {
   if (!inBuildArea(x, z)) {
-    setStatus('Too far out, build closer to the castle');
+    setStatus('Too far from the keep');
     return false;
   }
   if (isInWater(x, z)) {
@@ -1644,7 +1668,7 @@ function placeWallLine(x0, z0, x1, z1) {
       (skipped > 0 ? ' (' + skipped + ' skipped)' : ''),
     );
   } else if (skipped > 0) {
-    setStatus('Too far out, build closer to the castle');
+    setStatus('Too far from the keep');
   } else {
     setStatus('Not enough resources');
   }
@@ -2417,9 +2441,15 @@ renderer.domElement.addEventListener('pointermove', (e) => {
     gz,
   );
   ghost.visible = true;
+  const inRange = inBuildArea(gx, gz);
   ghostMat.color.setHex(
-    canAfford(COSTS[state.placing]) && !isInWater(gx, gz) ? 0x7ec850 : 0xd23b2e,
+    canAfford(COSTS[state.placing]) && !isInWater(gx, gz) && inRange ? 0x7ec850 : 0xd23b2e,
   );
+  // Outside the build limit the ghost is red and the status line says so
+  // (only on the transition in, so it does not spam every mouse move).
+  if (!inRange && waveStatusEl.textContent !== 'Too far from the keep') {
+    setStatus('Too far from the keep');
+  }
 });
 
 // Distinguish a click from an orbit drag.
@@ -2631,6 +2661,7 @@ window.__castle = {
     kind: state.placing,
     ghostRotationY: ghost.rotation.y,
     ghostVisible: ghost.visible,
+    ghostColor: '#' + ghostMat.color.getHexString(),
     wallDrag: wallDrag
       ? {
           x0: wallDrag.x0,
@@ -2642,6 +2673,8 @@ window.__castle = {
       : null,
   }),
   groundSize: () => GROUND_SIZE,
+  buildRadius: () => BUILD_RADIUS,
+  inBuildArea: (x, z) => inBuildArea(x, z),
   incomePerTick,
   audio: {
     isUnlocked: () => audioUnlocked,
