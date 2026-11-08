@@ -1402,6 +1402,7 @@ scene.add(ghost);
 
 function setGhostFor(kind) {
   while (ghost.children.length > 0) ghost.remove(ghost.children[0]);
+  ghost.rotation.y = 0; // the wall ghost gets its angle from the camera, in the render loop
   if (kind === 'wall') {
     const b = new THREE.Mesh(new THREE.BoxGeometry(4, 3.2, 1.2), ghostMat);
     b.position.y = 1.6;
@@ -1499,12 +1500,19 @@ function placeWallAt(x, z) {
   const gx = Math.round(x / 2) * 2;
   const gz = Math.round(z / 2) * 2;
   const gy = terrainHeight(gx, gz);
+  // The wall faces the camera: rotate it to the camera's current azimuth,
+  // so the player can wall off whichever side he is looking at. The wall
+  // is built in local coordinates around its own centre, then the whole
+  // group is moved and rotated, so the rotation pivots on the wall itself.
+  const angle = controls.getAzimuthalAngle();
   const g = new THREE.Group();
-  box(4, 3.2, 1.2, stoneMat, gx, gy + 1.6, gz, g);
-  addMerlonsX(g, gx, gy + 3.2, 4, gz);
+  box(4, 3.2, 1.2, stoneMat, 0, 1.6, 0, g);
+  addMerlonsX(g, 0, 3.2, 4, 0);
+  g.position.set(gx, gy, gz);
+  g.rotation.y = angle;
   scene.add(g);
   makeSelectable(g, 'Wall Segment');
-  built.push({ kind: 'wall', x: gx, z: gz });
+  built.push({ kind: 'wall', x: gx, z: gz, angle });
   setStatus('Wall built at ' + gx + ', ' + gz);
 }
 
@@ -2326,6 +2334,9 @@ function animate() {
   elapsed += delta;
   // Gentle flag wave.
   flag.rotation.y = Math.sin(elapsed * 2.2) * 0.18;
+  // The wall ghost follows the camera angle, so the player sees the
+  // angle the wall will be placed at before clicking.
+  if (state.placing === 'wall') ghost.rotation.y = controls.getAzimuthalAngle();
   // The river flows: scroll the streak texture along the river.
   riverWaterMat.map.offset.y -= delta * 0.02;
   // Torch flames flicker.
@@ -2458,6 +2469,11 @@ window.__castle = {
   built,
   camera,
   controls,
+  placing: () => ({
+    kind: state.placing,
+    ghostRotationY: ghost.rotation.y,
+    ghostVisible: ghost.visible,
+  }),
   groundSize: () => GROUND_SIZE,
   incomePerTick,
   audio: {
