@@ -74,6 +74,46 @@
       </div>
     </div>
 
+    <div id="challenge-overlay" class="hidden">
+      <div class="challenge-box">
+        <div class="challenge-header">
+          <div class="challenge-header-text">
+            <span id="challenge-kind"></span>
+            <h2 id="challenge-title"></h2>
+            <span id="challenge-difficulty" class="challenge-badge"></span>
+          </div>
+          <button id="challenge-close" type="button" aria-label="Close challenge">×</button>
+        </div>
+        <p id="challenge-story" class="challenge-story"></p>
+        <div class="challenge-grid">
+          <div class="challenge-info">
+            <p id="challenge-description"></p>
+            <h3>Examples</h3>
+            <div id="challenge-examples"></div>
+            <h3>Constraints</h3>
+            <ul id="challenge-constraints"></ul>
+          </div>
+          <div class="challenge-code">
+            <textarea id="challenge-editor" spellcheck="false" aria-label="Code editor"></textarea>
+            <div class="challenge-actions">
+              <button id="challenge-run" type="button">Run tests</button>
+              <button id="challenge-hint-btn" type="button" class="challenge-secondary">Hint</button>
+              <button id="challenge-reset" type="button" class="challenge-secondary">Reset</button>
+              <button id="challenge-cancel" type="button" class="challenge-secondary">Close</button>
+            </div>
+            <p id="challenge-hint" class="challenge-hint hidden"></p>
+            <p id="challenge-error" class="challenge-error hidden"></p>
+            <p id="challenge-summary"></p>
+            <div id="challenge-results"></div>
+            <div id="challenge-success" class="challenge-success hidden">
+              <p>Challenge solved. Your building is ready.</p>
+              <button id="challenge-place-btn" type="button">Place building</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
     <div id="fallen-overlay" class="hidden">
       <div class="fallen-box">
         <h2>Castle has fallen</h2>

@@ -20,6 +20,7 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
+import { openChallenge, getCurrentChallenge } from './challengePanel.js';
 
 // ---------------------------------------------------------------------------
 // Audio: sound effects and background music (Phase 3)
@@ -3443,6 +3444,9 @@ let elapsed = 0;
 let incomeTimer = 0;
 let smokeTimer = 0;
 let smokeIdx = 0;
+// True while the code challenge panel is open: enemy movement, income
+// ticks and tower fire are paused until the panel closes.
+let challengeOpen = false;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -3516,24 +3520,26 @@ function animate() {
     });
   }
   updateParticles(delta);
-  // Economy tick every 5 seconds.
-  incomeTimer += delta;
-  if (incomeTimer >= 5) {
-    incomeTimer -= 5;
-    const inc = incomePerTick();
-    state.wood += inc.wood;
-    state.food += inc.food;
-    state.gold += inc.gold;
-    state.goldEarned += inc.gold;
-    state.stone += inc.stone;
-    updateHUD();
+  // Economy tick every 5 seconds, paused while a challenge is open.
+  if (!challengeOpen) {
+    incomeTimer += delta;
+    if (incomeTimer >= 5) {
+      incomeTimer -= 5;
+      const inc = incomePerTick();
+      state.wood += inc.wood;
+      state.food += inc.food;
+      state.gold += inc.gold;
+      state.goldEarned += inc.gold;
+      state.stone += inc.stone;
+      updateHUD();
+    }
+    updateTowers(delta);
+    updateArrows(delta);
+    updateEnemies(delta, elapsed);
+    updateSoldiers(delta, elapsed);
+    checkWaveEnd();
   }
-  updateTowers(delta);
-  updateArrows(delta);
-  updateEnemies(delta, elapsed);
-  updateSoldiers(delta, elapsed);
   updateAnimals(delta, elapsed);
-  checkWaveEnd();
   // Keyboard pan: move the orbit target in camera-relative directions.
   // The target clamp below keeps it inside the map. Pan speed scales
   // with the camera's distance to the target, so crossing the whole map
@@ -3659,6 +3665,13 @@ window.__castle = {
   buildRadius: () => BUILD_RADIUS,
   inBuildArea: (x, z) => inBuildArea(x, z),
   incomePerTick,
+  // Code challenge panel (Phase 1): openChallenge(kind, onSolved) shows a
+  // random variant for the kind and calls onSolved(kind) when the player
+  // solves it and clicks "Place building". The panel pauses the simulation.
+  openChallenge,
+  challengeOpen: () => challengeOpen,
+  setChallengeOpen: (value) => { challengeOpen = !!value; },
+  challengeId: () => (getCurrentChallenge() ? getCurrentChallenge().id : null),
   audio: {
     isUnlocked: () => audioUnlocked,
     isMuted: () => muted,

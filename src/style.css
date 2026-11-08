@@ -253,6 +253,325 @@ empty parts of the bar never block orbiting the camera. */
   white-space: nowrap;
 }
 
+/* Challenge panel: modal overlay, same dark panels and gold accents as the HUD */
+#challenge-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 30;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 6, 0.72);
+  padding: 16px;
+}
+
+#challenge-overlay.hidden {
+  display: none;
+}
+
+#challenge-overlay .hidden {
+  display: none;
+}
+
+.challenge-box {
+  width: min(920px, 94vw);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: rgba(20, 26, 20, 0.96);
+  color: #f3ead2;
+  border: 1px solid rgba(243, 234, 210, 0.4);
+  border-radius: 10px;
+  padding: 20px 22px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.challenge-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.challenge-header-text h2 {
+  margin: 2px 0 6px;
+  font-size: 24px;
+  color: #ffd34d;
+}
+
+#challenge-kind {
+  font-size: 12px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #d8cfae;
+}
+
+#challenge-close {
+  cursor: pointer;
+  flex: none;
+  font-family: inherit;
+  font-size: 22px;
+  line-height: 1;
+  color: #f3ead2;
+  background: transparent;
+  border: 1px solid rgba(243, 234, 210, 0.4);
+  border-radius: 6px;
+  padding: 4px 10px;
+}
+
+#challenge-close:hover {
+  background: rgba(243, 234, 210, 0.15);
+}
+
+.challenge-badge {
+  display: inline-block;
+  padding: 2px 10px;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: bold;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+}
+
+.challenge-badge-easy {
+  background: rgba(126, 200, 80, 0.2);
+  color: #7ec850;
+}
+
+.challenge-badge-easymedium {
+  background: rgba(255, 211, 77, 0.2);
+  color: #ffd34d;
+}
+
+.challenge-badge-medium {
+  background: rgba(224, 165, 58, 0.2);
+  color: #e0a53a;
+}
+
+.challenge-badge-hard {
+  background: rgba(210, 59, 46, 0.2);
+  color: #ff8a7a;
+}
+
+.challenge-story {
+  margin: 10px 0 0;
+  font-style: italic;
+  color: #d8cfae;
+}
+
+.challenge-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+  margin-top: 14px;
+}
+
+.challenge-info p {
+  margin: 0;
+  font-size: 14px;
+  line-height: 1.55;
+}
+
+.challenge-info h3 {
+  margin: 16px 0 8px;
+  font-size: 13px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: #ffd34d;
+}
+
+.challenge-example {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: rgba(255, 211, 77, 0.07);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.challenge-example p {
+  margin: 2px 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+}
+
+.challenge-example-note {
+  color: #d8cfae;
+}
+
+#challenge-constraints {
+  margin: 0;
+  padding-left: 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #d8cfae;
+}
+
+#challenge-editor {
+  width: 100%;
+  min-height: 260px;
+  padding: 12px;
+  resize: vertical;
+  background: #0d140d;
+  color: #e8f5d8;
+  border: 1px solid rgba(243, 234, 210, 0.35);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  line-height: 1.6;
+  tab-size: 2;
+}
+
+#challenge-editor:focus {
+  outline: 2px solid #ffd34d;
+  outline-offset: 1px;
+}
+
+.challenge-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.challenge-actions button,
+#challenge-place-btn {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: bold;
+  color: #1c2416;
+  background: #ffd34d;
+  border: none;
+  border-radius: 6px;
+  padding: 9px 14px;
+}
+
+.challenge-actions button:hover,
+#challenge-place-btn:hover {
+  background: #ffdf7a;
+}
+
+.challenge-actions button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+.challenge-actions .challenge-secondary {
+  color: #f3ead2;
+  background: transparent;
+  border: 1px solid rgba(243, 234, 210, 0.4);
+  font-weight: normal;
+}
+
+.challenge-actions .challenge-secondary:hover {
+  background: rgba(243, 234, 210, 0.15);
+}
+
+.challenge-hint {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: rgba(255, 211, 77, 0.1);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.challenge-error {
+  margin: 12px 0 0;
+  padding: 10px 12px;
+  background: rgba(210, 59, 46, 0.15);
+  border: 1px solid rgba(210, 59, 46, 0.45);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 13px;
+  color: #ffb3ab;
+}
+
+#challenge-summary {
+  margin: 12px 0 0;
+  font-size: 14px;
+  font-weight: bold;
+  color: #ffd34d;
+}
+
+#challenge-results {
+  margin-top: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.challenge-test {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  padding: 8px 10px;
+  border: 1px solid rgba(243, 234, 210, 0.25);
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.challenge-test-pass {
+  border-color: rgba(126, 200, 80, 0.5);
+}
+
+.challenge-test-fail {
+  border-color: rgba(210, 59, 46, 0.55);
+}
+
+.challenge-test-mark {
+  flex: none;
+  font-weight: bold;
+}
+
+.challenge-test-pass .challenge-test-mark {
+  color: #7ec850;
+}
+
+.challenge-test-fail .challenge-test-mark {
+  color: #ff8a7a;
+}
+
+.challenge-test-body {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.challenge-test-body span {
+  overflow-wrap: break-word;
+}
+
+.challenge-test-args {
+  color: #d8cfae;
+}
+
+.challenge-success {
+  margin-top: 14px;
+  padding: 14px;
+  text-align: center;
+  background: rgba(126, 200, 80, 0.12);
+  border: 1px solid rgba(126, 200, 80, 0.5);
+  border-radius: 8px;
+}
+
+.challenge-success p {
+  margin: 0 0 12px;
+  font-size: 15px;
+  font-weight: bold;
+  color: #7ec850;
+}
+
+@media (max-width: 760px) {
+  .challenge-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 760px) {
   #hint {
     display: none;
