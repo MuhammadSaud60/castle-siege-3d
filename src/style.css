@@ -129,6 +129,12 @@ body {
   display: none;
 }
 
+/* Disabled action button (Train Soldier before any Barracks is built) */
+#actions .icon-btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
 #actions .icon-btn.muted .snd-waves {
   display: none;
 }

@@ -142,7 +142,9 @@ const state = {
   goldEarned: 0, // total gold gained from income ticks and wave rewards
   houseCount: 0, // houses built by the player
   farmCount: 0,
-  placing: null, // null or one of 'wall' | 'house' | 'farm' | 'tower'
+  factoryCount: 0, // factories built by the player
+  barracksCount: 0, // barracks built by the player
+  placing: null, // null or one of 'wall' | 'house' | 'farm' | 'tower' | 'factory' | 'barracks'
   removing: false, // demolish tool armed: a click on a building removes it
 };
 
@@ -151,6 +153,8 @@ const COSTS = {
   house: { wood: 20 },
   farm: { wood: 15 },
   tower: { stone: 30, wood: 10 },
+  factory: { wood: 25, stone: 15 },
+  barracks: { wood: 30, stone: 20 },
 };
 
 const TOWER_RANGE = 26;
@@ -174,7 +178,7 @@ const enemies = [];
 const soldiers = [];
 // Arrows in flight: { mesh, target }
 const arrows = [];
-// Buildings the player placed: { kind: 'wall' | 'house' | 'farm' | 'tower', x, z }
+// Buildings the player placed: { kind: 'wall' | 'house' | 'farm' | 'tower' | 'factory' | 'barracks', x, z }
 // (walls also carry angle; every building carries hp / maxHp). The entries
 // stay plain data so the debug handle can serialise them; the THREE.Group
 // for each building lives in buildingGroups, keyed by the entry.
@@ -184,16 +188,17 @@ const buildingGroups = new Map();
 // Building hit points, and what one enemy swing deals. A swing lands
 // every ENEMY_ATTACK_INTERVAL seconds: a wall (50 HP) holds for 10
 // swings, a house (30) for 6, a farm (20) for 4, a stone tower (60) for
-// 12. The keep takes the same 5 per swing (it used to take a single
-// 10-damage strike and the enemy vanished). One enemy needs 20 swings
-// to bring the keep down, so a lone attacker is a slow threat, but a
-// group attacking together can still overwhelm an undefended keep.
-const BUILDING_HP = { wall: 50, house: 30, farm: 20, tower: 60 };
+// 12, a factory (40) for 8, a barracks (50) for 10. The keep takes the
+// same 5 per swing (it used to take a single 10-damage strike and the
+// enemy vanished). One enemy needs 20 swings to bring the keep down,
+// so a lone attacker is a slow threat, but a group attacking together
+// can still overwhelm an undefended keep.
+const BUILDING_HP = { wall: 50, house: 30, farm: 20, tower: 60, factory: 40, barracks: 50 };
 const ENEMY_HIT_DAMAGE = 5;
 const ENEMY_ATTACK_INTERVAL = 1.0;
 // How close an enemy must get to a building before it stops and starts
 // attacking it (building half-extent plus the soldier's body).
-const BUILDING_STOP_DIST = { house: 3.0, farm: 3.8, tower: 2.8 };
+const BUILDING_STOP_DIST = { house: 3.0, farm: 3.8, tower: 2.8, factory: 4.5, barracks: 5.2 };
 const WALL_STOP_DIST = 1.4; // wall half-thickness 0.6 + soldier body
 const KEEP_STOP_DIST = 12; // courtyard edge, as before
 
@@ -740,6 +745,19 @@ const woodMat = new THREE.MeshStandardMaterial({
   map: woodTex,
   color: 0xffffff,
   roughness: 0.9,
+});
+// Factory brick, barracks roof, banners and training-yard dirt.
+const brickMat = new THREE.MeshStandardMaterial({
+  color: 0x8a4a32,
+  roughness: 0.95,
+});
+const barracksRoofMat = new THREE.MeshStandardMaterial({
+  color: 0x7a3b2e,
+  roughness: 0.95,
+});
+const dirtMat = new THREE.MeshStandardMaterial({
+  color: 0x6e4a22,
+  roughness: 1,
 });
 const darkMat = new THREE.MeshStandardMaterial({
   color: 0x2e2a24,
@@ -1317,24 +1335,27 @@ function incomePerTick() {
     wood: 2, // lumber
     food: 2 + state.farmCount * 2, // farms
     gold: 3 + state.houseCount, // taxes from houses
-    stone: 1, // quarry
+    stone: 1 + state.factoryCount * 2, // quarries + factories
   };
 }
 
-// ---------------------------------------------------------------------------
-// Placement: one mode for wall / house / farm / tower
+// Placement: one mode for wall / house / farm / tower / factory / barracks
 // ---------------------------------------------------------------------------
 const PLACE_DEFS = {
   wall: { label: '10 Stone' },
   house: { label: '20 Wood' },
   farm: { label: '15 Wood' },
   tower: { label: '30 Stone, 10 Wood' },
+  factory: { label: '25 Wood, 15 Stone' },
+  barracks: { label: '30 Wood, 20 Stone' },
 };
 const placeBtns = {
   wall: document.getElementById('btn-build-wall'),
   house: document.getElementById('btn-build-house'),
   farm: document.getElementById('btn-build-farm'),
   tower: document.getElementById('btn-build-tower'),
+  factory: document.getElementById('btn-build-factory'),
+  barracks: document.getElementById('btn-build-barracks'),
 };
 
 function canAfford(cost) {
@@ -1472,6 +1493,20 @@ function setGhostFor(kind) {
     const c = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 0.6, 14), ghostMat);
     c.position.y = 6.2;
     ghost.add(c);
+  } else if (kind === 'factory') {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(7, 4, 5), ghostMat);
+    b.position.y = 2;
+    ghost.add(b);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.75, 5, 10), ghostMat);
+    c.position.set(2.6, 5.5, -1.5);
+    ghost.add(c);
+  } else if (kind === 'barracks') {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(9, 3.5, 4.5), ghostMat);
+    b.position.y = 1.75;
+    ghost.add(b);
+    const r = new THREE.Mesh(new THREE.BoxGeometry(9.4, 0.5, 5), ghostMat);
+    r.position.y = 3.9;
+    ghost.add(r);
   }
 }
 
@@ -1665,6 +1700,65 @@ function placeTowerAt(x, z) {
   setStatus('Tower built at ' + gx + ', ' + gz);
 }
 
+function placeFactoryAt(x, z) {
+  const gx = Math.round(x / 2) * 2;
+  const gz = Math.round(z / 2) * 2;
+  const gy = terrainHeight(gx, gz);
+  const g = new THREE.Group();
+  // Brick hall with a flat slab roof, dark windows and a door.
+  box(7, 4, 5, brickMat, gx, gy + 2, gz, g);
+  box(7.6, 0.5, 5.6, stoneDarkMat, gx, gy + 4.2, gz, g);
+  box(0.9, 1.1, 0.2, darkMat, gx - 1.8, gy + 2, gz + 2.55, g);
+  box(0.9, 1.1, 0.2, darkMat, gx + 1.8, gy + 2, gz + 2.55, g);
+  box(1.2, 2, 0.2, woodMat, gx, gy + 1, gz + 2.55, g);
+  // Tall chimney on the roof corner; its top smokes like a house chimney.
+  cylinder(0.55, 0.75, 5, stoneDarkMat, gx + 2.6, gy + 5.5, gz - 1.5, g, 10);
+  chimneys.push(new THREE.Vector3(gx + 2.6, gy + 8, gz - 1.5));
+  scene.add(g);
+  state.factoryCount += 1;
+  const rec = { kind: 'factory', x: gx, z: gz, hp: BUILDING_HP.factory, maxHp: BUILDING_HP.factory };
+  g.userData.builtRec = rec;
+  built.push(rec);
+  buildingGroups.set(rec, g);
+  setStatus('Factory built at ' + gx + ', ' + gz + '. Stone income is now +' + (1 + state.factoryCount * 2) + ' per tick');
+}
+
+function placeBarracksAt(x, z) {
+  const gx = Math.round(x / 2) * 2;
+  const gz = Math.round(z / 2) * 2;
+  const gy = terrainHeight(gx, gz);
+  const g = new THREE.Group();
+  // Long hall: stone base, wooden walls, gabled roof, banners at the
+  // door, and a dirt training yard with dummies in front.
+  box(9, 1, 4.5, stoneDarkMat, gx, gy + 0.5, gz, g);
+  box(9, 2.8, 4.5, woodMat, gx, gy + 2.4, gz, g);
+  // Two roof slabs tilted to meet at the ridge (rotation.x negative
+  // lifts the +z edge, positive lifts the -z edge).
+  const roofL = box(9.6, 0.3, 2.9, barracksRoofMat, gx, gy + 4.7, gz - 1.15, g);
+  roofL.rotation.x = -0.55;
+  const roofR = box(9.6, 0.3, 2.9, barracksRoofMat, gx, gy + 4.7, gz + 1.15, g);
+  roofR.rotation.x = 0.55;
+  box(9.6, 0.3, 0.4, woodMat, gx, gy + 5.4, gz, g); // ridge beam
+  box(1.4, 2.2, 0.2, darkMat, gx, gy + 2.1, gz + 2.3, g); // door
+  for (const sx of [-3.2, 3.2]) {
+    cylinder(0.08, 0.08, 2.5, woodMat, gx + sx, gy + 1.25, gz + 2.6, g, 6);
+    box(0.9, 1.4, 0.08, bannerMat, gx + sx, gy + 2.2, gz + 2.6, g);
+  }
+  box(7, 0.25, 4, dirtMat, gx, gy + 0.12, gz + 4.5, g); // training yard
+  for (const sx of [-1.5, 1.5]) {
+    cylinder(0.09, 0.09, 1.6, woodMat, gx + sx, gy + 0.8, gz + 4.5, g, 6);
+    box(0.9, 0.12, 0.12, woodMat, gx + sx, gy + 1.4, gz + 4.5, g);
+  }
+  scene.add(g);
+  state.barracksCount += 1;
+  const rec = { kind: 'barracks', x: gx, z: gz, hp: BUILDING_HP.barracks, maxHp: BUILDING_HP.barracks };
+  g.userData.builtRec = rec;
+  built.push(rec);
+  buildingGroups.set(rec, g);
+  updateArmyDisplay();
+  setStatus('Barracks built at ' + gx + ', ' + gz + '. Army cap is now ' + armyCap() + ' — soldiers can be trained');
+}
+
 // Build area: a circle around the keep, not the old 200x200 square.
 function inBuildArea(x, z) {
   return Math.hypot(x, z) <= BUILD_RADIUS;
@@ -1689,6 +1783,8 @@ function placeAt(kind, x, z) {
   else if (kind === 'house') placeHouseAt(x, z);
   else if (kind === 'farm') placeFarmAt(x, z);
   else if (kind === 'tower') placeTowerAt(x, z);
+  else if (kind === 'factory') placeFactoryAt(x, z);
+  else if (kind === 'barracks') placeBarracksAt(x, z);
   playSound('build');
   updateHUD();
   return true;
@@ -2058,6 +2154,11 @@ const BRUTE_SCALE = 1.35;
 const playerTunicMat = new THREE.MeshStandardMaterial({ color: 0x2f6fd0, roughness: 0.9 });
 const SOLDIER_COST = { gold: 20 };
 const SOLDIER_CAP = 8;
+// Each Barracks raises the army cap by 4 (base cap 8). Training needs
+// at least one Barracks standing.
+function armyCap() {
+  return SOLDIER_CAP + state.barracksCount * 4;
+}
 const SOLDIER_HP = 30;
 const SOLDIER_DAMAGE = 1;
 const SOLDIER_SPEED = 3.2;
@@ -2391,13 +2492,25 @@ const trainBtn = document.getElementById('btn-train-soldier');
 const trainBtnLabel = trainBtn.querySelector('.btn-label');
 
 function updateArmyDisplay() {
-  trainBtnLabel.textContent = '20 Gold · ' + soldiers.length + '/' + SOLDIER_CAP;
+  const cap = armyCap();
+  trainBtnLabel.textContent = '20 Gold · ' + soldiers.length + '/' + cap;
+  // No Barracks, no training: the button is disabled with a hint.
+  const noBarracks = state.barracksCount === 0;
+  trainBtn.disabled = noBarracks;
+  trainBtn.title = noBarracks
+    ? 'Train Soldier — build a Barracks first'
+    : 'Train Soldier (20 Gold)';
+  trainBtn.setAttribute('aria-label', trainBtn.title);
 }
 
 function trainSoldier() {
   if (state.keepHp <= 0) return;
-  if (soldiers.length >= SOLDIER_CAP) {
-    setStatus('The army is at full strength (' + SOLDIER_CAP + ' soldiers)');
+  if (state.barracksCount === 0) {
+    setStatus('Build a Barracks first to train soldiers');
+    return;
+  }
+  if (soldiers.length >= armyCap()) {
+    setStatus('The army is at full strength (' + armyCap() + ' soldiers)');
     return;
   }
   if (!canAfford(SOLDIER_COST)) {
@@ -2409,7 +2522,7 @@ function trainSoldier() {
   playSound('build');
   updateHUD();
   updateArmyDisplay();
-  setStatus('Soldier trained (' + soldiers.length + '/' + SOLDIER_CAP + ')');
+  setStatus('Soldier trained (' + soldiers.length + '/' + armyCap() + ')');
 }
 
 trainBtn.addEventListener('click', () => {
@@ -2424,7 +2537,7 @@ function killSoldier(s) {
   scene.remove(s.group);
   playSound('death');
   updateArmyDisplay();
-  setStatus('A soldier has fallen! (' + soldiers.length + '/' + SOLDIER_CAP + ')');
+  setStatus('A soldier has fallen! (' + soldiers.length + '/' + armyCap() + ')');
 }
 
 function spawnWave(count) {
@@ -2673,6 +2786,16 @@ function destroyBuilding(b) {
     // A destroyed tower stops shooting.
     const ti = towers.findIndex((t) => t.pos.x === b.x && t.pos.z === b.z);
     if (ti >= 0) towers.splice(ti, 1);
+  } else if (b.kind === 'factory') {
+    state.factoryCount = Math.max(0, state.factoryCount - 1);
+    // The factory chimney no longer smokes.
+    const ci = chimneys.findIndex((c) => c.x === b.x + 2.6 && c.z === b.z - 1.5);
+    if (ci >= 0) chimneys.splice(ci, 1);
+  } else if (b.kind === 'barracks') {
+    state.barracksCount = Math.max(0, state.barracksCount - 1);
+    // The cap drops back; soldiers already trained stay, but no new
+    // training until the army is under the cap again.
+    updateArmyDisplay();
   }
   // Rubble burst where the building stood.
   const gy = terrainHeight(b.x, b.z);
@@ -3495,7 +3618,7 @@ window.__castle = {
   selected: () => (selected ? selected.userData.selectName : null),
   army: () => ({
     count: soldiers.length,
-    cap: SOLDIER_CAP,
+    cap: armyCap(),
     cost: SOLDIER_COST.gold,
     list: soldiers.map((s) => ({
       hp: s.hp,
@@ -3577,4 +3700,5 @@ window.__castle = {
 };
 
 updateHUD();
+updateArmyDisplay();
 animate();
