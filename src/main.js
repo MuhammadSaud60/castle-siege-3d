@@ -170,6 +170,8 @@ const BUILD_RADIUS = 75;
 const towers = [];
 // Enemies alive right now: { group, limbs, hp, speed, damage, reach, type, phase, target, attackTimer }
 const enemies = [];
+// The King's soldiers: { group, limbs, hp, maxHp, damage, speed, target, attackTimer, home, phase }
+const soldiers = [];
 // Arrows in flight: { mesh, target }
 const arrows = [];
 // Buildings the player placed: { kind: 'wall' | 'house' | 'farm' | 'tower', x, z }
@@ -1899,10 +1901,12 @@ function strut(ax, ay, az, bx, by, bz, r, mat, parent = scene) {
   return m;
 }
 
-function createSoldier(variant) {
+// The palette is optional: enemies use their variant's tunic and plume;
+// the King's soldiers pass the royal-blue tunic and a gold plume.
+function createSoldier(variant, tunicMat, plumeMat) {
   const v = variant % 3;
-  const tunic = enemyTunicMats[v];
-  const plume = plumeMats[v];
+  const tunic = tunicMat || enemyTunicMats[v];
+  const plume = plumeMat || plumeMats[v];
   const g = new THREE.Group();
   // Legs: thigh (the pivot mesh), shin and boot, swinging from the hip.
   function soldierLeg(px) {
@@ -2040,6 +2044,26 @@ const ENEMY_TYPES = {
 const CAVALRY_SPEED = 4.2; // vs foot soldiers at about 2.55
 const BRUTE_SPEED = 1.9;
 const BRUTE_SCALE = 1.35;
+
+// The King's soldiers (his army): royal-blue swordsmen with gold crests,
+// clearly distinct from the enemies (dark red / dark steel-blue / olive
+// tunics, red / blue / olive crests) and from the cavalry and brutes.
+// Numbers: 20 Gold to train (starting gold is 50, income is 3 + houses
+// per tick, a cleared wave pays +20); HP 30, so a foot soldier (5 per
+// swing) needs 6 swings to kill one, cavalry (15) needs 2 and a brute
+// (20) needs 2 — soldiers are a durable screen, not invincible. They
+// deal 1 damage per 1-second swing, the same as a tower arrow, and walk
+// at 3.2: faster than foot soldiers (2.55) and brutes (1.9), slower than
+// cavalry (4.2). Cap 8, so the army never crowds the courtyard.
+const playerTunicMat = new THREE.MeshStandardMaterial({ color: 0x2f6fd0, roughness: 0.9 });
+const SOLDIER_COST = { gold: 20 };
+const SOLDIER_CAP = 8;
+const SOLDIER_HP = 30;
+const SOLDIER_DAMAGE = 1;
+const SOLDIER_SPEED = 3.2;
+const SOLDIER_ENGAGE_RANGE = 30; // sally out a little beyond tower range (26)
+const SOLDIER_MELEE_RANGE = 1.8;
+const SOLDIER_ATTACK_INTERVAL = 1.0;
 
 const horseBodyMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
 const horseDarkMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1 });
@@ -2344,6 +2368,65 @@ function createEnemy(x, z, speed, variant = 0, type = 'soldier') {
   enemies.push({ group: s.group, limbs: s.limbs, hp: stats.hp, speed, damage: stats.damage, reach: stats.reach, type, phase: Math.random() * Math.PI * 2, target: null, attackTimer: 0 });
 }
 
+// The King's soldiers: royal-blue swordsmen (variant 1's sword and dome
+// helm, in the player's colours) who spawn on a ring around the
+// courtyard and guard the keep. Their post is their spawn point: with
+// no enemy in range they walk back there and idle.
+function createPlayerSoldier() {
+  const s = createSoldier(1, playerTunicMat, trimGoldMat);
+  const angle = (soldiers.length * 2.4) % (Math.PI * 2);
+  const x = Math.cos(angle) * 16;
+  const z = Math.sin(angle) * 16;
+  s.group.position.set(x, terrainHeight(x, z), z);
+  s.group.rotation.y = angle + Math.PI / 2;
+  scene.add(s.group);
+  soldiers.push({
+    group: s.group, limbs: s.limbs, hp: SOLDIER_HP, maxHp: SOLDIER_HP,
+    damage: SOLDIER_DAMAGE, speed: SOLDIER_SPEED, target: null,
+    attackTimer: 0, home: { x, z }, phase: Math.random() * Math.PI * 2,
+  });
+}
+
+const trainBtn = document.getElementById('btn-train-soldier');
+const trainBtnLabel = trainBtn.querySelector('.btn-label');
+
+function updateArmyDisplay() {
+  trainBtnLabel.textContent = '20 Gold · ' + soldiers.length + '/' + SOLDIER_CAP;
+}
+
+function trainSoldier() {
+  if (state.keepHp <= 0) return;
+  if (soldiers.length >= SOLDIER_CAP) {
+    setStatus('The army is at full strength (' + SOLDIER_CAP + ' soldiers)');
+    return;
+  }
+  if (!canAfford(SOLDIER_COST)) {
+    setStatus('Not enough gold to train a soldier (20 Gold)');
+    return;
+  }
+  payCost(SOLDIER_COST);
+  createPlayerSoldier();
+  playSound('build');
+  updateHUD();
+  updateArmyDisplay();
+  setStatus('Soldier trained (' + soldiers.length + '/' + SOLDIER_CAP + ')');
+}
+
+trainBtn.addEventListener('click', () => {
+  cancelPlacing();
+  trainSoldier();
+});
+
+function killSoldier(s) {
+  const i = soldiers.indexOf(s);
+  if (i >= 0) soldiers.splice(i, 1);
+  burstSparks(s.group.position.x, s.group.position.y + 1.2, s.group.position.z);
+  scene.remove(s.group);
+  playSound('death');
+  updateArmyDisplay();
+  setStatus('A soldier has fallen! (' + soldiers.length + '/' + SOLDIER_CAP + ')');
+}
+
 function spawnWave(count) {
   // Wave 1 is foot soldiers only. From wave 2 cavalry ride in, from
   // wave 3 brutes join them; the mix scales with the wave number.
@@ -2619,6 +2702,39 @@ function updateEnemies(delta, elapsed) {
     const dz = -p.z;
     const d = Math.hypot(dx, dz);
 
+    // A King's soldier in reach fights this enemy hand to hand: the
+    // enemy turns and fights the soldier instead of walking on or
+    // attacking a building. When the soldier falls or moves away, the
+    // enemy picks its building target up again below.
+    let nearSoldier = null;
+    let nearSoldierD = 2.2;
+    for (const s of soldiers) {
+      const sd = Math.hypot(s.group.position.x - p.x, s.group.position.z - p.z);
+      if (sd < nearSoldierD) { nearSoldierD = sd; nearSoldier = s; }
+    }
+    if (nearSoldier) {
+      if (e.target && e.target !== 'keep') e.target = null; // drop the building, fight the soldier
+      e.group.rotation.y = Math.atan2(nearSoldier.group.position.x - p.x, nearSoldier.group.position.z - p.z);
+      p.y = terrainHeight(p.x, p.z);
+      e.attackTimer -= delta;
+      const progress = 1 - Math.max(0, e.attackTimer) / ENEMY_ATTACK_INTERVAL;
+      const chop = Math.sin(Math.min(1, progress) * Math.PI);
+      if (e.limbs) {
+        e.limbs.legL.rotation.x = 0.15;
+        e.limbs.legR.rotation.x = -0.15;
+        e.limbs.armL.rotation.x = -0.3;
+        e.limbs.armR.rotation.x = -1.7 * chop;
+      }
+      if (e.attackTimer <= 0) {
+        e.attackTimer = ENEMY_ATTACK_INTERVAL;
+        nearSoldier.hp -= e.damage || ENEMY_HIT_DAMAGE;
+        burstSparks(nearSoldier.group.position.x, nearSoldier.group.position.y + 1.2, nearSoldier.group.position.z);
+        playSound('thud');
+        if (nearSoldier.hp <= 0) killSoldier(nearSoldier);
+      }
+      continue;
+    }
+
     // A destroyed building no longer blocks: drop the target and move on.
     if (e.target && e.target !== 'keep' && !built.includes(e.target)) {
       e.target = null;
@@ -2703,6 +2819,95 @@ function updateEnemies(delta, elapsed) {
         vx: (Math.random() - 0.5) * 0.4, vy: 0.35, vz: (Math.random() - 0.5) * 0.4,
         life: 0.7, size: 0.7, r: 0.62, g: 0.55, b: 0.42, grow: 1.2, peak: 0.3,
       });
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// The King's soldiers: they sally out to the nearest enemy in engage
+// range, walk up to it and fight in melee with a visible sword swing.
+// With no enemy in range they walk back to their post by the keep and
+// idle there. Enemies fight back (see the soldier check in
+// updateEnemies), so a soldier can be killed.
+function updateSoldiers(delta, elapsed) {
+  if (state.keepHp <= 0) return;
+  for (let i = soldiers.length - 1; i >= 0; i--) {
+    const s = soldiers[i];
+    const p = s.group.position;
+    // Drop a target that is dead or gone.
+    if (s.target && !enemies.includes(s.target)) s.target = null;
+    if (!s.target) {
+      let best = null;
+      let bestD = SOLDIER_ENGAGE_RANGE;
+      for (const e of enemies) {
+        const d = Math.hypot(e.group.position.x - p.x, e.group.position.z - p.z);
+        if (d < bestD) { bestD = d; best = e; }
+      }
+      s.target = best;
+    }
+    if (s.target) {
+      const tp = s.target.group.position;
+      const dx = tp.x - p.x;
+      const dz = tp.z - p.z;
+      const d = Math.hypot(dx, dz);
+      s.group.rotation.y = Math.atan2(dx, dz);
+      if (d > SOLDIER_MELEE_RANGE) {
+        // Walk to the enemy.
+        const step = Math.min(s.speed * delta, d - SOLDIER_MELEE_RANGE);
+        p.x += (dx / d) * step;
+        p.z += (dz / d) * step;
+        p.y = terrainHeight(p.x, p.z) + Math.abs(Math.sin(elapsed * 6 + s.phase)) * 0.12;
+        const swing = Math.sin(elapsed * 6 + s.phase);
+        s.limbs.legL.rotation.x = swing * 0.55;
+        s.limbs.legR.rotation.x = -swing * 0.55;
+        s.limbs.armL.rotation.x = -swing * 0.4;
+        s.limbs.armR.rotation.x = swing * 0.3;
+      } else {
+        // In reach: stand and swing the sword, one hit per interval.
+        p.y = terrainHeight(p.x, p.z);
+        s.attackTimer -= delta;
+        const progress = 1 - Math.max(0, s.attackTimer) / SOLDIER_ATTACK_INTERVAL;
+        const chop = Math.sin(Math.min(1, progress) * Math.PI);
+        s.limbs.legL.rotation.x = 0.15;
+        s.limbs.legR.rotation.x = -0.15;
+        s.limbs.armL.rotation.x = -0.3;
+        s.limbs.armR.rotation.x = -1.7 * chop;
+        if (s.attackTimer <= 0) {
+          s.attackTimer = SOLDIER_ATTACK_INTERVAL;
+          const e = s.target;
+          e.hp -= s.damage;
+          burstSparks(tp.x, tp.y + 1.2, tp.z);
+          if (e.hp <= 0) {
+            const idx = enemies.indexOf(e);
+            if (idx >= 0) killEnemy(idx);
+            playSound('death');
+            s.target = null;
+          } else {
+            playSound('hit');
+          }
+        }
+      }
+      continue;
+    }
+    // No enemy in range: walk back to the post by the keep, then idle.
+    const hx = s.home.x - p.x;
+    const hz = s.home.z - p.z;
+    const hd = Math.hypot(hx, hz);
+    if (hd > 0.6) {
+      const step = Math.min(s.speed * delta, hd);
+      p.x += (hx / hd) * step;
+      p.z += (hz / hd) * step;
+      s.group.rotation.y = Math.atan2(hx, hz);
+      const swing = Math.sin(elapsed * 6 + s.phase);
+      p.y = terrainHeight(p.x, p.z) + Math.abs(swing) * 0.12;
+      s.limbs.legL.rotation.x = swing * 0.55;
+      s.limbs.legR.rotation.x = -swing * 0.55;
+      s.limbs.armL.rotation.x = -swing * 0.4;
+      s.limbs.armR.rotation.x = swing * 0.3;
+    } else {
+      p.y = terrainHeight(p.x, p.z) + Math.sin(elapsed * 1.1 + s.phase) * 0.05;
+      s.limbs.armL.rotation.x = Math.sin(elapsed * 1.1 + s.phase) * 0.06;
+      s.limbs.armR.rotation.x = -Math.sin(elapsed * 1.1 + s.phase) * 0.06;
     }
   }
 }
@@ -3203,6 +3408,7 @@ function animate() {
   updateTowers(delta);
   updateArrows(delta);
   updateEnemies(delta, elapsed);
+  updateSoldiers(delta, elapsed);
   updateAnimals(delta, elapsed);
   checkWaveEnd();
   // Keyboard pan: move the orbit target in camera-relative directions.
@@ -3279,11 +3485,25 @@ function animate() {
 window.__castle = {
   state,
   enemies,
+  soldiers,
   towers,
   arrows,
   built,
   camera,
   controls,
+  removing: () => state.removing,
+  selected: () => (selected ? selected.userData.selectName : null),
+  army: () => ({
+    count: soldiers.length,
+    cap: SOLDIER_CAP,
+    cost: SOLDIER_COST.gold,
+    list: soldiers.map((s) => ({
+      hp: s.hp,
+      x: +s.group.position.x.toFixed(1),
+      z: +s.group.position.z.toFixed(1),
+      target: s.target ? s.target.type : null,
+    })),
+  }),
   placing: () => ({
     kind: state.placing,
     ghostRotationY: ghost.rotation.y,
