@@ -4,7 +4,8 @@
 // leaderboard were removed at Saud's request; the game always starts fresh
 // and has no score submission.) Phase 6: action buttons are icons, no save
 // or leaderboard. Phase 7: bigger ground (440) and proper low-poly soldier
-// characters with a walk animation.
+// characters with a walk animation. Phase 8: endless horizon, dense fog,
+// a mountain ring and a fog-coloured skirt hide the terrain edge.
 // A Stronghold-style castle builder scene: procedural low-poly geometry only,
 // no external models, images or audio. Three.js + OrbitControls, bundled by Vite.
 
@@ -177,7 +178,12 @@ container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87bfe8); // replaced by the gradient sky texture below
-scene.fog = new THREE.Fog(0xd3e2ee, 150, 480);
+// Dense fog (Phase 8): the far terrain edge must fade out before it is
+// reached. At max zoom-out the camera sits 220 from the castle, so fog
+// starts at 250 (the castle stays crisp even at max zoom) and is complete
+// at 430, just short of the far edge at ~440. Colour matches the sky
+// horizon band so the fade reads as haze, not a grey wall.
+scene.fog = new THREE.Fog(0xc9d9ec, 250, 430);
 
 const camera = new THREE.PerspectiveCamera(
   55,
@@ -401,8 +407,10 @@ const softTex = canvasTexture(softCanvas());
   const g = c.getContext('2d');
   const grad = g.createLinearGradient(0, 0, 0, 512);
   grad.addColorStop(0, '#4f8fd0');
-  grad.addColorStop(0.45, '#8ab8e2');
-  grad.addColorStop(0.72, '#cfe3f2');
+  grad.addColorStop(0.42, '#8ab8e2');
+  grad.addColorStop(0.55, '#bcd4ec');
+  grad.addColorStop(0.68, '#c9d9ec'); // horizon band matches the fog colour
+  grad.addColorStop(0.85, '#e2ecf4');
   grad.addColorStop(1, '#eef4f6');
   g.fillStyle = grad;
   g.fillRect(0, 0, 32, 512);
@@ -518,6 +526,81 @@ path.rotation.x = -Math.PI / 2;
 path.position.set(0, 0.05, 33);
 path.receiveShadow = true;
 scene.add(path);
+
+// ---------------------------------------------------------------------------
+// Horizon: mountain ring + edge-blend skirt (Phase 8)
+// The wide view used to show the hard cut of the square terrain. Three
+// things hide it now: the denser fog above, a ring of tall procedural
+// peaks around the map edge, and a huge flat disc in the fog colour under
+// the rim, so any sight line past the map meets fog-coloured ground,
+// never a cut edge or bare sky.
+// ---------------------------------------------------------------------------
+
+// Edge blend: a huge disc in the fog colour, just under the lowest terrain
+// dip (terrain drops to -2.2), so it never pokes through the ground.
+const skirt = new THREE.Mesh(
+  new THREE.CircleGeometry(1600, 48),
+  new THREE.MeshBasicMaterial({ color: 0xc9d9ec, fog: true }),
+);
+skirt.rotation.x = -Math.PI / 2;
+skirt.position.y = -4;
+scene.add(skirt);
+
+// Mountain ring: faceted low-poly peaks with snow caps. All cones are merged
+// into three meshes (two rock tones + snow) to keep draw calls low. They sit
+// outside the playable area (spawn is at ~125, placement limit is 100), so
+// they never block gameplay, and they are not selectable.
+const MOUNTAIN_COUNT = 30;
+{
+  const rockGeosA = [];
+  const rockGeosB = [];
+  const snowGeos = [];
+  const rockMatA = new THREE.MeshStandardMaterial({
+    color: 0x8d8478, roughness: 1, flatShading: true,
+  });
+  const rockMatB = new THREE.MeshStandardMaterial({
+    color: 0x7a7268, roughness: 1, flatShading: true,
+  });
+  const snowMat = new THREE.MeshStandardMaterial({
+    color: 0xf2f5f7, roughness: 0.9, flatShading: true,
+  });
+  function addMountain(angleDeg, radius, height, baseR, tone) {
+    const a = (angleDeg * Math.PI) / 180;
+    const x = Math.cos(a) * radius;
+    const z = Math.sin(a) * radius;
+    const baseY = terrainHeight(x, z) - 3; // sink the base into the ground
+    const rotY = Math.random() * Math.PI * 2;
+    const rock = new THREE.ConeGeometry(baseR, height, 6);
+    rock.rotateY(rotY);
+    rock.translate(x, baseY + height / 2, z);
+    (tone === 0 ? rockGeosA : rockGeosB).push(rock);
+    // Snow cap: the top third of the cone, slightly wider than the rock
+    // at that height so it sits proud of the slope.
+    const capH = height * 0.32;
+    const capR = baseR * 0.32 + 1.2;
+    const snow = new THREE.ConeGeometry(capR, capH, 6);
+    snow.rotateY(rotY);
+    snow.translate(x, baseY + height - capH / 2, z);
+    snowGeos.push(snow);
+  }
+  // Ring: 30 peaks all around, radius ~250, heights 45-80. The square
+  // terrain corners stick out to radius 311, but they are also the farthest
+  // points, so the fog hides them; no extra corner peaks, they would sit
+  // exactly where a panned camera travels and fill the view.
+  for (let i = 0; i < 30; i++) {
+    addMountain(
+      i * 12,
+      250 + (Math.random() * 36 - 18),
+      45 + Math.random() * 35,
+      42 + Math.random() * 23,
+      i % 2,
+    );
+  }
+  const ringA = new THREE.Mesh(mergeGeometries(rockGeosA), rockMatA);
+  const ringB = new THREE.Mesh(mergeGeometries(rockGeosB), rockMatB);
+  const ringSnow = new THREE.Mesh(mergeGeometries(snowGeos), snowMat);
+  scene.add(ringA, ringB, ringSnow);
+}
 
 // ---------------------------------------------------------------------------
 // Shared materials and small builders
@@ -1708,6 +1791,23 @@ function animate() {
   updateEnemies(delta, elapsed);
   checkWaveEnd();
   controls.update();
+  // Camera bounds: keep the orbit target over the playable map (build
+  // placement reaches radius 100) so the camera can never be panned out
+  // among the mountains looking back at the map.
+  const targetR = Math.hypot(controls.target.x, controls.target.z);
+  if (targetR > 110) {
+    const s = 110 / targetR;
+    controls.target.x *= s;
+    controls.target.z *= s;
+  }
+  // ... and keep the camera itself inside the mountain ring (radius 220),
+  // so a ring peak can never end up between the camera and the castle.
+  const camR = Math.hypot(camera.position.x, camera.position.z);
+  if (camR > 220) {
+    const s = 220 / camR;
+    camera.position.x *= s;
+    camera.position.z *= s;
+  }
   renderer.render(scene, camera);
 }
 
@@ -1737,6 +1837,14 @@ window.__castle = {
     particles: () => parts.length,
     clouds: () => clouds.length,
     chimneys: () => chimneys.length,
+  },
+  horizon: {
+    mountains: () => MOUNTAIN_COUNT,
+    fog: () => ({
+      near: scene.fog.near,
+      far: scene.fog.far,
+      color: '#' + scene.fog.color.getHexString(),
+    }),
   },
 };
 

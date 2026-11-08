@@ -86,6 +86,16 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
   tunic torso, swinging arms and legs with a walk animation, shield and
   spear or sword, in three visual variants (red spearman, blue swordsman,
   olive spearman) with identical behaviour, speed, health and ranges.
+- **Phase 8 (done):** Endless horizon. The wide view used to show the hard
+  cut of the square terrain, so the edge is hidden three ways: denser fog
+  (near 250, far 430, colour matched to the sky horizon band, the castle
+  stays crisp even at max zoom-out), a ring of 30 tall procedural peaks
+  with snow caps around the map edge, and a huge flat disc in the fog
+  // colour under the rim so any sight line past the map meets fog-coloured
+  ground. The camera target is also kept over the playable map (radius
+  110) and the camera itself inside the mountain ring (radius 220) so the
+  view can never be panned out among the mountains. The
+  playable ground is still 440 wide, and nothing about gameplay changed.
 
 ## Audio credits
 
