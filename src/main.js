@@ -143,6 +143,7 @@ const state = {
   houseCount: 0, // houses built by the player
   farmCount: 0,
   placing: null, // null or one of 'wall' | 'house' | 'farm' | 'tower'
+  removing: false, // demolish tool armed: a click on a building removes it
 };
 
 const COSTS = {
@@ -1489,6 +1490,7 @@ function cancelPlacing() {
   ghost.visible = false;
   resetPlaceButtons();
   deselect();
+  cancelRemoving();
   // Left-drag orbits again, and the hint goes back to the default.
   controls.mouseButtons.LEFT = THREE.MOUSE.ROTATE;
   controls.touches.ONE = THREE.TOUCH.ROTATE;
@@ -1496,6 +1498,7 @@ function cancelPlacing() {
 }
 
 function togglePlacing(kind) {
+  cancelRemoving();
   if (state.placing === kind) {
     cancelPlacing();
     return;
@@ -1529,9 +1532,39 @@ for (const [kind, btn] of Object.entries(placeBtns)) {
   btn.addEventListener('click', () => togglePlacing(kind));
 }
 
+// Demolish tool (Stronghold-style): arm it with the Remove button, then
+// click any player building to demolish it instantly, with no refund.
+// The tool stays armed so several buildings can be removed in a row.
+// Esc or the button again cancels it. Clicking the ground or the King
+// while it is armed does nothing, and it never conflicts with the
+// King-move click (arming it deselects the King first).
+const removeBtn = document.getElementById('btn-remove');
+
+function cancelRemoving() {
+  if (!state.removing) return;
+  state.removing = false;
+  removeBtn.classList.remove('active');
+  if (hintEl) hintEl.textContent = DEFAULT_HINT;
+}
+
+function toggleRemoving() {
+  if (state.removing) {
+    cancelRemoving();
+    return;
+  }
+  cancelPlacing();
+  state.removing = true;
+  removeBtn.classList.add('active');
+  if (hintEl) hintEl.textContent = 'Remove: click a building to demolish it. Esc to stop.';
+  setStatus('Remove tool: click a building to demolish it');
+}
+
+removeBtn.addEventListener('click', toggleRemoving);
+
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
     if (state.placing) cancelPlacing();
+    else if (state.removing) cancelRemoving();
     else if (selected) deselect();
   }
   if (e.key === 'm' || e.key === 'M') {
@@ -1571,6 +1604,7 @@ function placeWallAt(x, z) {
   g.rotation.y = angle;
   scene.add(g);
   const rec = { kind: 'wall', x: gx, z: gz, angle, hp: BUILDING_HP.wall, maxHp: BUILDING_HP.wall };
+  g.userData.builtRec = rec;
   built.push(rec);
   buildingGroups.set(rec, g);
   setStatus('Wall built at ' + gx + ', ' + gz);
@@ -1583,6 +1617,7 @@ function placeHouseAt(x, z) {
   state.houseCount += 1;
   state.popCap += 4;
   const rec = { kind: 'house', x: gx, z: gz, hp: BUILDING_HP.house, maxHp: BUILDING_HP.house };
+  g.userData.builtRec = rec;
   built.push(rec);
   buildingGroups.set(rec, g);
   setStatus('House built at ' + gx + ', ' + gz + '. Population cap is now ' + state.popCap);
@@ -1602,6 +1637,7 @@ function placeFarmAt(x, z) {
   scene.add(g);
   state.farmCount += 1;
   const rec = { kind: 'farm', x: gx, z: gz, hp: BUILDING_HP.farm, maxHp: BUILDING_HP.farm };
+  g.userData.builtRec = rec;
   built.push(rec);
   buildingGroups.set(rec, g);
   setStatus('Farm built at ' + gx + ', ' + gz + '. Food income is now +' + (2 + state.farmCount * 2) + ' per tick');
@@ -1621,6 +1657,7 @@ function placeTowerAt(x, z) {
   scene.add(g);
   towers.push({ pos: new THREE.Vector3(gx, gy + 6.5, gz), cooldown: 0 });
   const rec = { kind: 'tower', x: gx, z: gz, hp: BUILDING_HP.tower, maxHp: BUILDING_HP.tower };
+  g.userData.builtRec = rec;
   built.push(rec);
   buildingGroups.set(rec, g);
   setStatus('Tower built at ' + gx + ', ' + gz);
@@ -3021,6 +3058,21 @@ renderer.domElement.addEventListener('pointerup', (e) => {
     return;
   }
   if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // it was a drag
+  if (state.removing) {
+    // Demolish: only a click on a player building removes it. The ray
+    // hits building meshes only, so the King and the ground are never
+    // touched while the tool is armed. The tool stays armed for the
+    // next building.
+    setPointerFromEvent(e);
+    raycaster.setFromCamera(pointer, camera);
+    const hits = raycaster.intersectObjects([...buildingGroups.values()], true);
+    if (hits.length > 0) {
+      let obj = hits[0].object;
+      while (obj && !obj.userData.builtRec) obj = obj.parent;
+      if (obj) destroyBuilding(obj.userData.builtRec);
+    }
+    return;
+  }
   if (state.placing) {
     const p = groundPointFromEvent(e);
     if (p) placeAt(state.placing, p.x, p.z);
