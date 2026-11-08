@@ -8,7 +8,10 @@
 // a fog-coloured skirt hide the terrain edge (the mountain ring from Phase 8
 // was removed in Phase 9, it looked fake). Phase 9: a real landscape,
 // rolling hills, clustered forests, stones, a winding river, a pond, and
-// animals (deer, rabbits, birds) moving around in the wild.
+// animals (deer, rabbits, birds) moving around in the wild. Phase 10: the
+// camera can travel the whole map (target clamp 300, camera clamp 340),
+// with an outer terrain ring out to 1280 so the terrain edge stays beyond
+// the fog from every camera angle, and zoom-scaled WASD panning.
 // A Stronghold-style castle builder scene: procedural low-poly geometry only,
 // no external models, images or audio. Three.js + OrbitControls, bundled by Vite.
 
@@ -182,10 +185,13 @@ container.appendChild(renderer.domElement);
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87bfe8); // replaced by the gradient sky texture below
 // Dense fog (Phase 8): the far terrain edge must fade out before it is
-// reached. At max zoom-out the camera sits 220 from the castle, so fog
-// starts at 230 (the castle stays crisp even at max zoom) and is complete
-// at 420, just short of the far edge at ~440. Colour matches the sky
-// horizon band so the fade reads as haze, not a grey wall.
+// reached. The playable map is 640 wide and the outer terrain ring (Phase
+// 10) runs out to 1280, and the camera always looks at a target within
+// 220 units, so every terrain edge inside the view frustum is more than
+// 700 away from any allowed camera position, far past the fog's far end
+// at 420. Fog starts at 230, so the castle stays crisp at every zoom.
+// Colour matches the sky horizon band so the fade reads as haze, not a
+// grey wall.
 scene.fog = new THREE.Fog(0xc9d9ec, 230, 420);
 
 const camera = new THREE.PerspectiveCamera(
@@ -207,6 +213,16 @@ controls.enableDamping = false;
 controls.minDistance = 14;
 controls.maxDistance = 220;
 controls.maxPolarAngle = Math.PI / 2 - 0.04; // never go under the ground
+
+// Camera bounds (Phase 10). The orbit target can travel the whole
+// 640-wide map, out to radius 300. The camera itself can sit up to
+// maxDistance (220) beyond a target at the map edge, so its clamp is
+// 300 + 220 = 520: it always stays over terrain (the outer ring runs
+// out to 1280, the terrain edge is at 640) and, because the camera
+// always looks at a target within 220 units, every terrain edge inside
+// the view frustum is more than 700 away, far past the fog's far end.
+const TARGET_CLAMP = 300;
+const CAMERA_CLAMP = 520;
 
 // ---------------------------------------------------------------------------
 // Procedural canvas textures (graphics upgrade)
@@ -578,6 +594,67 @@ const ground = new THREE.Mesh(
 );
 ground.receiveShadow = true;
 scene.add(ground);
+
+// Outer terrain ring (Phase 10): the playable map is 640 wide, but the
+// camera can now travel the whole map, so a camera at the rim looking
+// along it would see the ground plane end. This ring continues the same
+// rolling hills out to 1280 wide, so the real terrain edge sits far
+// beyond the fog from every allowed camera position. It is a 10-unit
+// grid: fine enough to resolve the river channel (14 wide, the water
+// sits 1 unit above the channel bottom, so the ring surface must dip
+// below the water along the centreline) yet cheap, and the far land is
+// always hazed. It starts at radius 300 tucked 0.05 under the ground
+// plane so the seam never cracks open, and it shares the grass texture
+// at the same tile size (UVs are world position / 640, the texture
+// repeats 70 times across 640 units, same as the ground plane). No
+// trees, rocks or animals out here, just bare hills fading into the haze.
+{
+  const OUTER_SIZE = 1280;
+  const RING_STEP = 10;
+  const RING_INNER = 300;
+  const half = OUTER_SIZE / 2;
+  const n = OUTER_SIZE / RING_STEP;
+  const positions = [];
+  const uvs = [];
+  const index = [];
+  for (let j = 0; j <= n; j++) {
+    for (let i = 0; i <= n; i++) {
+      const x = -half + i * RING_STEP;
+      const z = -half + j * RING_STEP;
+      positions.push(x, terrainHeight(x, z) - 0.05, z);
+      uvs.push(x / GROUND_SIZE, z / GROUND_SIZE);
+    }
+  }
+  const stride = n + 1;
+  for (let j = 0; j < n; j++) {
+    for (let i = 0; i < n; i++) {
+      const cx0 = -half + i * RING_STEP;
+      const cx1 = cx0 + RING_STEP;
+      const cz0 = -half + j * RING_STEP;
+      const cz1 = cz0 + RING_STEP;
+      // Skip cells fully inside the inner square: the ground plane
+      // already covers them, the ring only shows outside it.
+      if (cx0 >= -RING_INNER && cx1 <= RING_INNER && cz0 >= -RING_INNER && cz1 <= RING_INNER) continue;
+      const a = j * stride + i;
+      const b = a + 1;
+      const c = a + stride;
+      const d = c + 1;
+      index.push(a, c, b, b, c, d);
+    }
+  }
+  const ringGeo = new THREE.BufferGeometry();
+  ringGeo.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+  ringGeo.setAttribute('uv', new THREE.Float32BufferAttribute(uvs, 2));
+  ringGeo.setIndex(index);
+  ringGeo.computeVertexNormals();
+  const ring = new THREE.Mesh(
+    ringGeo,
+    new THREE.MeshStandardMaterial({ map: grassTex, color: 0xffffff, roughness: 1 }),
+  );
+  ring.receiveShadow = true;
+  scene.add(ring);
+  var ringTriangleCount = index.length / 3;
+}
 
 // Faint grid over the flat castle area, for a building-game feel.
 const grid = new THREE.GridHelper(80, 40, 0x35592f, 0x35592f);
@@ -1185,7 +1262,9 @@ function buildRocks() {
     }
   }
   // Small stones along the river banks: both banks, a stone every few units.
-  for (let x = -312; x <= 312; x += 7) {
+  // The river runs the full width of the outer ring (Phase 10), so the
+  // stones run with it to the far edge.
+  for (let x = -636; x <= 636; x += 7) {
     const zc = riverZ(x);
     for (const side of [-1, 1]) {
       if (rng() < 0.55) continue; // gaps, not a solid wall
@@ -1269,7 +1348,7 @@ const riverPoints = [];
 {
   const geos = [];
   const HALF_WIDTH = 13;
-  for (let x = -316; x <= 316; x += 4) {
+  for (let x = -636; x <= 636; x += 4) {
     const quad = new THREE.PlaneGeometry(HALF_WIDTH * 2, 4);
     // After the two rotations the plane lies flat: local X runs along
     // the river (length 4), local Z runs across it (width 26).
@@ -1481,7 +1560,8 @@ window.addEventListener('keydown', (e) => {
 // Keyboard panning: WASD / arrow keys move the view across the map, so the
 // camera can travel away from the castle without a right-drag (awkward on
 // a laptop touchpad). Keys are tracked here and applied in the render loop,
-// scaled by frame delta, so the speed is the same at any frame rate.
+// scaled by frame delta and by zoom distance, so the speed is the same at
+// any frame rate and fast when zoomed out, precise when zoomed in.
 const panKeys = new Set();
 const PAN_KEYS = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
 window.addEventListener('keydown', (e) => {
@@ -2377,7 +2457,10 @@ function animate() {
   updateAnimals(delta, elapsed);
   checkWaveEnd();
   // Keyboard pan: move the orbit target in camera-relative directions.
-  // The target clamp below keeps it inside the map.
+  // The target clamp below keeps it inside the map. Pan speed scales
+  // with the camera's distance to the target, so crossing the whole map
+  // is quick when zoomed out (about 130 units/sec at max zoom) and
+  // precise when zoomed in (about 12 units/sec up close).
   if (panKeys.size > 0) {
     const forward = new THREE.Vector3();
     camera.getWorldDirection(forward);
@@ -2390,25 +2473,53 @@ function animate() {
     if (panKeys.has('d') || panKeys.has('arrowright')) move.add(right);
     if (panKeys.has('a') || panKeys.has('arrowleft')) move.sub(right);
     if (move.lengthSq() > 0) {
-      move.normalize().multiplyScalar(32 * delta);
-      controls.target.add(move);
+      const dist = camera.position.distanceTo(controls.target);
+      const speed = Math.min(140, Math.max(12, dist * 0.6));
+      move.normalize().multiplyScalar(speed * delta);
+      // Move the camera WITH the target, exactly like OrbitControls'
+      // own pan does. Moving only the target breaks the pan: the
+      // camera stays behind, the view direction rotates as the
+      // max-distance rule drags the camera along, and panning veers
+      // off course (east became north-east) or stalls (panning toward
+      // the camera shrinks the distance, so the zoom-scaled speed
+      // decays). Moving both keeps the offset, the direction and the
+      // speed constant in every direction. The camera moves by the
+      // displacement the target clamp actually allows, never more:
+      // when the target is pinned at the map edge, the camera must
+      // stop with it instead of sliding on past the target.
+      const nx = controls.target.x + move.x;
+      const nz = controls.target.z + move.z;
+      const nr = Math.hypot(nx, nz);
+      let appliedX = move.x;
+      let appliedZ = move.z;
+      if (nr > TARGET_CLAMP) {
+        const s = TARGET_CLAMP / nr;
+        appliedX = nx * s - controls.target.x;
+        appliedZ = nz * s - controls.target.z;
+      }
+      controls.target.x += appliedX;
+      controls.target.z += appliedZ;
+      camera.position.x += appliedX;
+      camera.position.z += appliedZ;
     }
   }
   controls.update();
-  // Camera bounds: keep the orbit target over the playable map (build
-  // placement reaches radius 100) so the camera can never be panned out
-  // past the far hills looking back at the map.
+  // Camera bounds (Phase 10): the orbit target can travel the whole map,
+  // out to radius 300, so the camera can visit every corner of the
+  // 640-wide land. The camera itself stays inside radius 520 (target
+  // clamp + max zoom distance), always over terrain, so the terrain
+  // edge at 640 stays beyond the fog from any angle even at max zoom-out.
   const targetR = Math.hypot(controls.target.x, controls.target.z);
-  if (targetR > 110) {
-    const s = 110 / targetR;
+  if (targetR > TARGET_CLAMP) {
+    const s = TARGET_CLAMP / targetR;
     controls.target.x *= s;
     controls.target.z *= s;
   }
-  // ... and keep the camera itself inside radius 220, so the fog and the
+  // ... and keep the camera itself inside radius 520, so the fog and the
   // far hills always hide the terrain edge from view.
   const camR = Math.hypot(camera.position.x, camera.position.z);
-  if (camR > 220) {
-    const s = 220 / camR;
+  if (camR > CAMERA_CLAMP) {
+    const s = CAMERA_CLAMP / camR;
     camera.position.x *= s;
     camera.position.z *= s;
   }
@@ -2461,6 +2572,7 @@ window.__castle = {
     riverWaterLevel: (x) => terrainHeight(x, riverZ(x)) + 1.0,
     pond: () => ({ x: POND_X, z: POND_Z, r: POND_R }),
     pondWaterLevel: () => terrainHeight(POND_X, POND_Z) + 1.0,
+    ringTriangles: () => ringTriangleCount,
   },
 };
 
