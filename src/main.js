@@ -351,29 +351,6 @@ function roofCanvas() {
   return c;
 }
 
-// Packed dirt with speckles, darker at the left and right edges.
-function dirtCanvas() {
-  const s = 256;
-  const c = blankCanvas(s);
-  const g = c.getContext('2d');
-  g.fillStyle = '#a68a5e';
-  g.fillRect(0, 0, s, s);
-  for (let i = 0; i < 500; i++) {
-    g.fillStyle = Math.random() < 0.5 ? 'rgba(110,85,45,0.25)' : 'rgba(190,160,110,0.25)';
-    g.beginPath();
-    g.arc(Math.random() * s, Math.random() * s, 1 + Math.random() * 4, 0, Math.PI * 2);
-    g.fill();
-  }
-  const edge = g.createLinearGradient(0, 0, s, 0);
-  edge.addColorStop(0, 'rgba(70,55,30,0.45)');
-  edge.addColorStop(0.2, 'rgba(70,55,30,0)');
-  edge.addColorStop(0.8, 'rgba(70,55,30,0)');
-  edge.addColorStop(1, 'rgba(70,55,30,0.45)');
-  g.fillStyle = edge;
-  g.fillRect(0, 0, s, s);
-  return c;
-}
-
 // Large flagstones for the courtyard.
 function slabCanvas() {
   const s = 256;
@@ -418,7 +395,6 @@ const stoneDarkTex = canvasTexture(stoneCanvas(120), 1, 1);
 const grassTex = canvasTexture(grassCanvas(), 70, 70);
 const woodTex = canvasTexture(woodCanvas(), 1, 1);
 const roofTex = canvasTexture(roofCanvas(), 2, 2);
-const dirtTex = canvasTexture(dirtCanvas(), 1, 5);
 const slabTex = canvasTexture(slabCanvas(), 3, 3);
 const softTex = canvasTexture(softCanvas());
 
@@ -673,16 +649,6 @@ courtyard.position.y = 0.03;
 courtyard.receiveShadow = true;
 scene.add(courtyard);
 
-// Dirt path from the gate (south side) out into the fields.
-const path = new THREE.Mesh(
-  new THREE.PlaneGeometry(4.5, 30),
-  new THREE.MeshStandardMaterial({ map: dirtTex, color: 0xffffff, roughness: 1 }),
-);
-path.rotation.x = -Math.PI / 2;
-path.position.set(0, 0.05, 33);
-path.receiveShadow = true;
-scene.add(path);
-
 // ---------------------------------------------------------------------------
 // Horizon: fog + edge-blend skirt (Phase 8, mountains removed in Phase 9)
 // The wide view used to show the hard cut of the square terrain. Two
@@ -830,13 +796,14 @@ function deselect() {
 }
 
 // ---------------------------------------------------------------------------
-// The castle: the Stronghold keep and its gate (Phase 2). The game starts
+// The castle: the Stronghold keep, standing alone (Phase 2). The game starts
 // with ONLY the keep: no wall ring, no corner towers, no village houses.
 // The player builds walls, houses, farms and towers himself with the
-// build buttons. The gate, torches, banners and dirt path stay with the
-// keep.
+// build buttons. The gate, its flanking torches and the dirt path were
+// removed at Saud's request: the torches flanked the gate, not the keep,
+// so without the gate they would stand alone in the open meadow. The
+// banners stay with the keep.
 // ---------------------------------------------------------------------------
-const HALF = 18; // the gate stands HALF units south of the keep
 
 // Keep: tall central tower with a flag.
 const keep = new THREE.Group();
@@ -887,49 +854,6 @@ for (const bx of [-2.2, 2.2]) {
 }
 scene.add(keep);
 makeSelectable(keep, 'Stone Keep');
-
-// Gatehouse: wooden posts and beam, standing alone south of the keep
-// (there is no wall ring any more; the player builds the walls).
-const gate = new THREE.Group();
-box(0.9, 5.6, 0.9, woodMat, -3.3, 2.8, HALF, gate);
-box(0.9, 5.6, 0.9, woodMat, 3.3, 2.8, HALF, gate);
-box(7.5, 0.9, 1.1, woodMat, 0, 5.6, HALF, gate);
-box(5.6, 4.6, 0.3, new THREE.MeshStandardMaterial({ color: 0x6e4a22, roughness: 0.9 }), 0, 2.3, HALF, gate);
-scene.add(gate);
-makeSelectable(gate, 'Gatehouse');
-
-// Torches flanking the gate, with flickering flames. One shared point light
-// between them keeps the lighting cheap on weak hardware.
-const torchLights = [];
-const torchFlames = [];
-for (const tx of [-4.8, 4.8]) {
-  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 1.5, 8), darkMat);
-  post.position.set(tx, 0.75, HALF + 0.9);
-  post.castShadow = true;
-  scene.add(post);
-  const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.12, 0.3, 8), darkMat);
-  cup.position.set(tx, 1.6, HALF + 0.9);
-  scene.add(cup);
-  const flame = new THREE.Mesh(
-    new THREE.ConeGeometry(0.22, 0.65, 8),
-    new THREE.MeshBasicMaterial({ color: 0xffa63d }),
-  );
-  flame.position.set(tx, 2.05, HALF + 0.9);
-  scene.add(flame);
-  const flameCore = new THREE.Mesh(
-    new THREE.ConeGeometry(0.11, 0.4, 8),
-    new THREE.MeshBasicMaterial({ color: 0xffe08a }),
-  );
-  flameCore.position.set(tx, 2.0, HALF + 0.9);
-  scene.add(flameCore);
-  torchFlames.push(flame, flameCore);
-}
-{
-  const light = new THREE.PointLight(0xff9a3d, 16, 20, 1.6);
-  light.position.set(0, 2.6, HALF + 1.2);
-  scene.add(light);
-  torchLights.push({ light, phase: 0 });
-}
 
 // ---------------------------------------------------------------------------
 // Houses, trees, rocks (Phase 2). There is no pre-built village any more:
@@ -1101,7 +1025,6 @@ function buildForest() {
     const x = Math.cos(a) * r;
     const z = Math.sin(a) * r;
     if (!treeSpotOk(x, z)) continue;
-    if (Math.abs(x) < 4 && z > 14 && z < 52) continue; // keep the dirt path clear
     const s = 0.7 + rng() * 0.7;
     const y = terrainHeight(x, z);
     for (let k = -1; k <= 1; k++) {
@@ -2339,18 +2262,6 @@ function animate() {
   if (state.placing === 'wall') ghost.rotation.y = controls.getAzimuthalAngle();
   // The river flows: scroll the streak texture along the river.
   riverWaterMat.map.offset.y -= delta * 0.02;
-  // Torch flames flicker.
-  for (const t of torchLights) {
-    t.light.intensity = 13 + Math.sin(elapsed * 11 + t.phase) * 2 + Math.sin(elapsed * 23 + t.phase * 2) * 1;
-  }
-  for (let i = 0; i < torchFlames.length; i++) {
-    const f = torchFlames[i];
-    f.scale.set(
-      1 + Math.sin(elapsed * 13 + i * 1.7) * 0.12,
-      1 + Math.sin(elapsed * 17 + i) * 0.15,
-      1 + Math.sin(elapsed * 13 + i * 1.7) * 0.12,
-    );
-  }
   // Clouds drift across the sky.
   for (const cloud of clouds) {
     cloud.position.x += cloud.userData.drift * delta;
