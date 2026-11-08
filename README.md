@@ -38,6 +38,38 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
   choice is remembered. Music starts after your first click, browsers block
   audio before any interaction. Arrow shots, hits, deaths, building, the
   wave horn, the victory fanfare, keep damage and game over all have sounds.
+- Save: `Save Game` saves your resources, wave, keep HP and every building
+  you placed. The game also autosaves after each cleared wave. Reloading
+  the page offers `Continue` (pick up where you left off) or `New Game`
+  (wipe the save and start over). A damaged save is ignored and the game
+  starts fresh.
+- Leaderboard: the panel on the right shows the top 10 players. Score is
+  waves cleared first, then enemies defeated, then gold earned. After you
+  clear a wave, or when the castle falls, enter a name (20 characters max,
+  "Anonymous" if left blank) and press `Submit score`. If the leaderboard
+  server is asleep or unreachable, the panel shows the scores saved on
+  your own device instead, and says so.
+
+## Leaderboard API
+
+The game talks to a small Node/Express API in `server/` (deployed as a
+free Render web service at https://castle-siege-3d-api.onrender.com).
+Endpoints: `GET /health`, `GET /api/scores?limit=10`, `POST /api/scores`
+with `{ "name", "waves", "kills", "gold" }`. Names are sanitised,
+numbers are validated, and submissions are rate limited (10 per IP per
+minute). Scores live in a free Render PostgreSQL database when
+`DATABASE_URL` is set; without it the API falls back to a JSON file
+(`server/data/scores.json`), which keeps the API working but is not
+durable across restarts on the free tier.
+
+Free tier notes: the web service sleeps after 15 minutes without traffic,
+so the first leaderboard load can take 30 to 60 seconds while it wakes
+up. The free PostgreSQL database expires after about 90 days and its
+data is deleted then; keeping scores past that needs the $7/month
+Starter database, or recreating the free database and starting the
+board over. Run the API locally with `cd server && npm install && npm start`
+(port 3001). The game uses `VITE_LEADERBOARD_API_URL` when set, otherwise
+the Render URL above.
 
 ## Phase plan
 
@@ -51,8 +83,13 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
   enemy hits and deaths, building, wave horn, victory fanfare, keep damage,
   game over and UI clicks, plus a quiet ambient medieval music loop with a
   mute button (and M key). All audio is bundled locally in `public/audio/`.
-- **Phase 4: Save and leaderboard server backend.** Game progress saved on
-  the server, a leaderboard, and the frontend talking to the backend API.
+- **Phase 4 (done):** Save game and leaderboard server backend. Progress
+  (resources, wave, keep HP, placed buildings) saves to localStorage with
+  autosave after each cleared wave, a Save button, and a Continue / New
+  Game choice on reload. A Node/Express leaderboard API (see "Leaderboard
+  API" above) stores top 10 scores in a free Render PostgreSQL database
+  with a JSON file fallback, and the game shows a local top 10 when the
+  server is unreachable.
 
 ## Audio credits
 

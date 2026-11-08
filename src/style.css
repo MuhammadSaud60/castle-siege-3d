@@ -192,6 +192,168 @@ body {
   white-space: nowrap;
 }
 
+/* Leaderboard panel (Phase 4): top right, under the resources panel */
+#leaderboard-panel {
+  top: 84px;
+  right: 14px;
+  width: 300px;
+  font-size: 13px;
+}
+
+#leaderboard-panel.hidden {
+  display: none;
+}
+
+#leaderboard-panel h3 {
+  margin: 0 0 6px;
+  font-size: 16px;
+  color: #ffd34d;
+}
+
+#score-line {
+  margin: 0 0 8px;
+  font-size: 13px;
+  color: #d8cfae;
+}
+
+#leaderboard-list {
+  margin: 0 0 8px;
+  padding-left: 20px;
+}
+
+#leaderboard-list li {
+  margin: 2px 0;
+  font-size: 13px;
+}
+
+#leaderboard-note {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: #d8cfae;
+}
+
+.score-form {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.score-form input {
+  flex: 1;
+  min-width: 0;
+  font-family: inherit;
+  font-size: 14px;
+  color: #1c2416;
+  background: #f3ead2;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 10px;
+}
+
+.score-form button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  font-weight: bold;
+  color: #1c2416;
+  background: #ffd34d;
+  border: none;
+  border-radius: 6px;
+  padding: 8px 12px;
+  white-space: nowrap;
+}
+
+.score-form button:hover:not(:disabled) {
+  background: #ffdf7a;
+}
+
+#leaderboard-panel button:disabled,
+.score-form button:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+#score-status,
+#fallen-score-status {
+  margin: 8px 0;
+  font-size: 12px;
+  color: #d8cfae;
+}
+
+#btn-refresh-board {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 13px;
+  font-weight: bold;
+  color: #1c2416;
+  background: #ffd34d;
+  border: none;
+  border-radius: 6px;
+  padding: 7px 12px;
+}
+
+#btn-refresh-board:hover {
+  background: #ffdf7a;
+}
+
+/* Start overlay (Continue / New Game), same look as the fallen overlay */
+#start-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 6, 0.72);
+}
+
+#start-overlay.hidden {
+  display: none;
+}
+
+.start-box {
+  text-align: center;
+  background: rgba(20, 26, 20, 0.92);
+  color: #f3ead2;
+  border: 1px solid rgba(243, 234, 210, 0.4);
+  border-radius: 10px;
+  padding: 28px 40px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  max-width: 480px;
+}
+
+.start-box h2 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  color: #ffd34d;
+}
+
+.start-box p {
+  margin: 0 0 18px;
+  font-size: 15px;
+}
+
+.start-box button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: bold;
+  color: #1c2416;
+  background: #ffd34d;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 22px;
+  margin: 0 6px;
+}
+
+.start-box button:hover {
+  background: #ffdf7a;
+}
+
+.fallen-box .score-form {
+  margin: 0 0 6px;
+}
+
 @media (max-width: 760px) {
   #hint {
     display: none;
@@ -200,5 +362,8 @@ body {
     flex-wrap: wrap;
     gap: 8px;
     max-width: 46vw;
+  }
+  #leaderboard-panel {
+    display: none;
   }
 }
