@@ -86,16 +86,33 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
   tunic torso, swinging arms and legs with a walk animation, shield and
   spear or sword, in three visual variants (red spearman, blue swordsman,
   olive spearman) with identical behaviour, speed, health and ranges.
-- **Phase 8 (done):** Endless horizon. The wide view used to show the hard
-  cut of the square terrain, so the edge is hidden three ways: denser fog
-  (near 250, far 430, colour matched to the sky horizon band, the castle
-  stays crisp even at max zoom-out), a ring of 30 tall procedural peaks
-  with snow caps around the map edge, and a huge flat disc in the fog
-  // colour under the rim so any sight line past the map meets fog-coloured
-  ground. The camera target is also kept over the playable map (radius
-  110) and the camera itself inside the mountain ring (radius 220) so the
-  view can never be panned out among the mountains. The
-  playable ground is still 440 wide, and nothing about gameplay changed.
+- **Phase 8 (done, then replaced by Phase 9):** Endless horizon. The wide
+  view used to show the hard cut of the square terrain, so the edge was
+  hidden with denser fog (near 250, far 430, colour matched to the sky
+  horizon band, the castle stays crisp even at max zoom-out), a ring of
+  30 tall procedural peaks with snow caps around the map edge, and a huge
+  flat disc in the fog colour under the rim so any sight line past the map
+  meets fog-coloured ground. The camera target is also kept over the
+  playable map (radius 110) and the camera itself inside radius 220. The
+  mountain ring looked fake, so Phase 9 removed it and hid the edge with
+  real rolling hills instead.
+- **Phase 9 (done):** A real landscape. The mountain ring is gone for
+  good; the horizon is now gentle rolling hills that rise toward the map
+  edge and fade into the fog (near 230, far 420). The green land is now
+  640 wide (up from 440), so the ground looks endless from max zoom-out,
+  panned corners and low angles alike, with the far hills and the fog
+  hiding the edge. The terrain itself rolls across the whole map while
+  the castle ground stays flat. Trees grow in twelve dense forest
+  clusters with varied pines and broadleaf trees, plus bushes and grass
+  tufts, and open meadow is left around the castle.
+  Rocks sit in natural clusters near the hills, with big boulders and
+  small stones along the river banks. A winding river crosses the north
+  of the map with animated flowing water, and a small pond sits in the
+  south meadow; buildings cannot be placed in the water, and enemies
+  wade across the shallow river on their way to the keep. A herd of five
+  deer, four rabbits and five birds live in the forest and meadow: they
+  wander, graze and change direction, and they never affect gameplay.
+  Nothing about the castle, economy, waves or balance changed.
 
 ## Audio credits
 

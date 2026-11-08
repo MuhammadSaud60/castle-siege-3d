@@ -4,8 +4,11 @@
 // leaderboard were removed at Saud's request; the game always starts fresh
 // and has no score submission.) Phase 6: action buttons are icons, no save
 // or leaderboard. Phase 7: bigger ground (440) and proper low-poly soldier
-// characters with a walk animation. Phase 8: endless horizon, dense fog,
-// a mountain ring and a fog-coloured skirt hide the terrain edge.
+// characters with a walk animation. Phase 8: endless horizon, dense fog and
+// a fog-coloured skirt hide the terrain edge (the mountain ring from Phase 8
+// was removed in Phase 9, it looked fake). Phase 9: a real landscape,
+// rolling hills, clustered forests, stones, a winding river, a pond, and
+// animals (deer, rabbits, birds) moving around in the wild.
 // A Stronghold-style castle builder scene: procedural low-poly geometry only,
 // no external models, images or audio. Three.js + OrbitControls, bundled by Vite.
 
@@ -180,10 +183,10 @@ const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87bfe8); // replaced by the gradient sky texture below
 // Dense fog (Phase 8): the far terrain edge must fade out before it is
 // reached. At max zoom-out the camera sits 220 from the castle, so fog
-// starts at 250 (the castle stays crisp even at max zoom) and is complete
-// at 430, just short of the far edge at ~440. Colour matches the sky
+// starts at 230 (the castle stays crisp even at max zoom) and is complete
+// at 420, just short of the far edge at ~440. Colour matches the sky
 // horizon band so the fade reads as haze, not a grey wall.
-scene.fog = new THREE.Fog(0xc9d9ec, 250, 430);
+scene.fog = new THREE.Fog(0xc9d9ec, 230, 420);
 
 const camera = new THREE.PerspectiveCamera(
   55,
@@ -392,7 +395,7 @@ function softCanvas() {
 
 const stoneTex = canvasTexture(stoneCanvas(154), 2, 1);
 const stoneDarkTex = canvasTexture(stoneCanvas(120), 1, 1);
-const grassTex = canvasTexture(grassCanvas(), 48, 48);
+const grassTex = canvasTexture(grassCanvas(), 70, 70);
 const woodTex = canvasTexture(woodCanvas(), 1, 1);
 const roofTex = canvasTexture(roofCanvas(), 2, 2);
 const dirtTex = canvasTexture(dirtCanvas(), 1, 5);
@@ -440,7 +443,7 @@ for (let i = 0; i < 6; i++) {
     map: softTex, color: 0xffffff, fog: false, depthWrite: false, transparent: true, opacity: 0.75,
   }));
   const a = (i / 6) * Math.PI * 2 + 0.4;
-  const r = 130 + (i % 3) * 60;
+  const r = 150 + (i % 3) * 70;
   cloud.position.set(Math.cos(a) * r, 70 + (i % 3) * 16, Math.sin(a) * r);
   const cs = 42 + (i % 3) * 16;
   cloud.scale.set(cs, cs * 0.42, 1);
@@ -468,23 +471,95 @@ sun.shadow.bias = -0.0006;
 scene.add(sun);
 
 // ---------------------------------------------------------------------------
-// Terrain: gentle height variation, flat near the castle
+// Terrain: a real rolling landscape, flat near the castle
 // ---------------------------------------------------------------------------
-function terrainHeight(x, z) {
-  const d = Math.hypot(x, z);
-  if (d < 40) return 0; // flat castle ground
-  const t = Math.min((d - 40) / 60, 1); // fade the hills in
-  return (
-    t *
-    (Math.sin(x * 0.08) * Math.cos(z * 0.06) * 1.4 +
-      Math.sin((x + z) * 0.05) * 0.8)
-  );
+// Deterministic random (mulberry32) so the forest, rocks and animals are
+// laid out the same way on every load, which also keeps screenshots
+// comparable between runs.
+function mulberry32(seed) {
+  let a = seed >>> 0;
+  return function () {
+    a |= 0;
+    a = (a + 0x6d2b79f5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
 }
 
-// Ground is 440 wide (about 1.8x the old 240), so the map feels much
-// bigger while the castle stays centred on flat ground in the middle.
-const GROUND_SIZE = 440;
-const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 128, 128);
+function smoothstep(a, b, x) {
+  const t = Math.min(1, Math.max(0, (x - a) / (b - a)));
+  return t * t * (3 - 2 * t);
+}
+
+// The river winds west to east across the north half of the map, well
+// clear of the castle (it never comes closer than about 115 units to the
+// centre, so it never touches the village or the build area).
+function riverZ(x) {
+  return -(95 + 55 * Math.sin(x * 0.011 + 0.7) + 22 * Math.sin(x * 0.027 + 2.1));
+}
+
+// Distance from (x, z) to the river centreline. The river runs mostly
+// west to east, so the vertical distance is a good approximation (the
+// slope correction keeps it honest where the river bends).
+function riverDistance(x, z) {
+  const dz = z - riverZ(x);
+  const slope = -55 * 0.011 * Math.cos(x * 0.011 + 0.7) - 22 * 0.027 * Math.cos(x * 0.027 + 2.1);
+  return Math.abs(dz) / Math.sqrt(1 + slope * slope);
+}
+
+// The pond sits in the south meadow, far from the castle and the path.
+// This spot was picked because the ground around it is gentle enough
+// that a flat water disc sits below the bowl's rim all the way round.
+const POND_X = -60;
+const POND_Z = 150;
+const POND_R = 20;
+
+function pondDistance(x, z) {
+  return Math.hypot(x - POND_X, z - POND_Z);
+}
+
+// True when a point is in water (river channel or pond bowl). Buildings
+// cannot be placed there.
+function isInWater(x, z) {
+  return riverDistance(x, z) < 6.5 || pondDistance(x, z) < POND_R + 1;
+}
+
+// Rolling hills built from layered sines: gentle near the castle, growing
+// into a proper ridge toward the far edge so the horizon is a hill line,
+// not a cut. The river channel and the pond bowl are carved into it.
+function terrainHeight(x, z) {
+  const d = Math.hypot(x, z);
+  const t = smoothstep(40, 80, d); // 0 on the flat castle ground, 1 beyond
+  const roll =
+    Math.sin(x * 0.045 + 1.7) * Math.cos(z * 0.038 + 0.6) * 2.0 +
+    Math.sin((x + z) * 0.021 + 2.3) * 1.5 +
+    Math.sin(x * 0.013 - 0.9) * Math.cos(z * 0.017 + 1.2) * 2.4 +
+    Math.sin((x - z) * 0.008 + 0.4) * 2.0;
+  // The far ground climbs into a ridge (up to about 10) so the terrain
+  // itself hides its own edge; the rise varies along the rim so the
+  // horizon line is uneven, like real hills.
+  const rim = smoothstep(110, 215, d);
+  const rimRise =
+    rim * rim * 10 * (0.75 + 0.25 * Math.sin(x * 0.03 + 2.0) * Math.cos(z * 0.026 + 0.5));
+  let h = t * roll * (0.6 + 0.4 * t) + rimRise;
+  // River channel: a smooth valley about 14 wide, 4.0 deep. The channel
+  // is deliberately deep so the water (one unit above the channel bottom)
+  // sits well below the banks even where the hillside slopes away from
+  // the river, and the ribbon's edges stay buried in the banks.
+  const rd = riverDistance(x, z);
+  h -= 4.0 * Math.exp(-(rd * rd) / (2 * 7 * 7));
+  // Pond bowl: a round dip about 40 wide, 2.4 deep.
+  const pd = pondDistance(x, z);
+  h -= 2.4 * Math.exp(-(pd * pd) / (2 * 20 * 20));
+  return h;
+}
+
+// Ground is 640 wide (up from 440 in Phase 9), so the green land feels
+// much bigger and the edge sits far beyond the fog from any camera
+// angle, while the castle stays centred on flat ground in the middle.
+const GROUND_SIZE = 640;
+const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 200, 200);
 groundGeo.rotateX(-Math.PI / 2);
 {
   const pos = groundGeo.attributes.position;
@@ -528,79 +603,28 @@ path.receiveShadow = true;
 scene.add(path);
 
 // ---------------------------------------------------------------------------
-// Horizon: mountain ring + edge-blend skirt (Phase 8)
-// The wide view used to show the hard cut of the square terrain. Three
-// things hide it now: the denser fog above, a ring of tall procedural
-// peaks around the map edge, and a huge flat disc in the fog colour under
-// the rim, so any sight line past the map meets fog-coloured ground,
-// never a cut edge or bare sky.
+// Horizon: fog + edge-blend skirt (Phase 8, mountains removed in Phase 9)
+// The wide view used to show the hard cut of the square terrain. Two
+// things hide it now: the denser fog above, and a huge flat disc in the
+// fog colour under the rim, so any sight line past the map meets
+// fog-coloured ground, never a cut edge or bare sky. The far terrain
+// itself also climbs into a ridge (see terrainHeight), so the horizon is
+// a hill line. The Phase 8 mountain ring was removed in Phase 9, it
+// looked fake; real rolling hills do the job now.
 // ---------------------------------------------------------------------------
 
 // Edge blend: a huge disc in the fog colour, just under the lowest terrain
-// dip (terrain drops to -2.2), so it never pokes through the ground.
+// dip (the river channel drops to about -7), so it never pokes through
+// the ground.
 const skirt = new THREE.Mesh(
   new THREE.CircleGeometry(1600, 48),
   new THREE.MeshBasicMaterial({ color: 0xc9d9ec, fog: true }),
 );
 skirt.rotation.x = -Math.PI / 2;
-skirt.position.y = -4;
+skirt.position.y = -9;
 scene.add(skirt);
 
-// Mountain ring: faceted low-poly peaks with snow caps. All cones are merged
-// into three meshes (two rock tones + snow) to keep draw calls low. They sit
-// outside the playable area (spawn is at ~125, placement limit is 100), so
-// they never block gameplay, and they are not selectable.
-const MOUNTAIN_COUNT = 30;
-{
-  const rockGeosA = [];
-  const rockGeosB = [];
-  const snowGeos = [];
-  const rockMatA = new THREE.MeshStandardMaterial({
-    color: 0x8d8478, roughness: 1, flatShading: true,
-  });
-  const rockMatB = new THREE.MeshStandardMaterial({
-    color: 0x7a7268, roughness: 1, flatShading: true,
-  });
-  const snowMat = new THREE.MeshStandardMaterial({
-    color: 0xf2f5f7, roughness: 0.9, flatShading: true,
-  });
-  function addMountain(angleDeg, radius, height, baseR, tone) {
-    const a = (angleDeg * Math.PI) / 180;
-    const x = Math.cos(a) * radius;
-    const z = Math.sin(a) * radius;
-    const baseY = terrainHeight(x, z) - 3; // sink the base into the ground
-    const rotY = Math.random() * Math.PI * 2;
-    const rock = new THREE.ConeGeometry(baseR, height, 6);
-    rock.rotateY(rotY);
-    rock.translate(x, baseY + height / 2, z);
-    (tone === 0 ? rockGeosA : rockGeosB).push(rock);
-    // Snow cap: the top third of the cone, slightly wider than the rock
-    // at that height so it sits proud of the slope.
-    const capH = height * 0.32;
-    const capR = baseR * 0.32 + 1.2;
-    const snow = new THREE.ConeGeometry(capR, capH, 6);
-    snow.rotateY(rotY);
-    snow.translate(x, baseY + height - capH / 2, z);
-    snowGeos.push(snow);
-  }
-  // Ring: 30 peaks all around, radius ~250, heights 45-80. The square
-  // terrain corners stick out to radius 311, but they are also the farthest
-  // points, so the fog hides them; no extra corner peaks, they would sit
-  // exactly where a panned camera travels and fill the view.
-  for (let i = 0; i < 30; i++) {
-    addMountain(
-      i * 12,
-      250 + (Math.random() * 36 - 18),
-      45 + Math.random() * 35,
-      42 + Math.random() * 23,
-      i % 2,
-    );
-  }
-  const ringA = new THREE.Mesh(mergeGeometries(rockGeosA), rockMatA);
-  const ringB = new THREE.Mesh(mergeGeometries(rockGeosB), rockMatB);
-  const ringSnow = new THREE.Mesh(mergeGeometries(snowGeos), snowMat);
-  scene.add(ringA, ringB, ringSnow);
-}
+
 
 // ---------------------------------------------------------------------------
 // Shared materials and small builders
@@ -937,75 +961,349 @@ house(-28, 28, 5);
 house(62, -40, 6);
 house(-64, 48, 7);
 
-const treeSpots = [
-  [-42, -8], [-46, 14], [-38, -34], [42, -30], [48, -6],
-  [44, 26], [-44, 34], [14, -42], [-12, 46], [58, 12],
-  [78, -44], [96, 20], [-84, -62], [120, -78], [-110, 30],
-  [140, 44], [-140, -40], [88, 96], [-96, 110], [150, -110],
-  [-160, 90], [60, -120], [-70, -130], [130, 120],
+// Place a geometry in the world: rotate around Y, scale uniformly, move.
+const _xformM = new THREE.Matrix4();
+const _xformQ = new THREE.Quaternion();
+const _xformV = new THREE.Vector3();
+const _xformS = new THREE.Vector3();
+function xformGeo(geo, x, y, z, rotY, s) {
+  _xformQ.setFromAxisAngle(new THREE.Vector3(0, 1, 0), rotY);
+  _xformV.set(x, y, z);
+  _xformS.set(s, s, s);
+  _xformM.compose(_xformV, _xformQ, _xformS);
+  geo.applyMatrix4(_xformM);
+  return geo;
+}
+
+// ---------------------------------------------------------------------------
+// Forest: trees grow in real clusters (Phase 9), not scattered singles.
+// Dense groups of varied pine and broadleaf trees with varied sizes, and
+// open meadow left between the forest and the castle. All trees of one
+// kind are merged into a single mesh, so about 90 trees cost three draw
+// calls. Forest trees are scenery and are not selectable.
+// ---------------------------------------------------------------------------
+const FORESTS = [
+  { x: -75, z: -165, r: 34, n: 14 },
+  { x: 75, z: -165, r: 34, n: 14 },
+  { x: 140, z: -110, r: 34, n: 12 },
+  { x: -140, z: -110, r: 34, n: 12 },
+  { x: 165, z: 15, r: 30, n: 10 },
+  { x: -165, z: -5, r: 30, n: 10 },
+  { x: -150, z: 85, r: 28, n: 9 },
+  { x: 125, z: 125, r: 24, n: 7 },
+  // Outer forests on the bigger ground, filling the far land.
+  { x: 240, z: -140, r: 30, n: 10 },
+  { x: -240, z: -140, r: 30, n: 10 },
+  { x: 250, z: 120, r: 30, n: 10 },
+  { x: -250, z: 140, r: 28, n: 9 },
+];
+// A few lone trees standing in the open meadow.
+const LONE_TREES = [
+  [-60, 60], [70, 65], [-100, 40], [100, -60], [30, 110], [-40, 110],
 ];
 
-function tree(x, z, s, i) {
-  const g = new THREE.Group();
-  const y = terrainHeight(x, z);
-  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6e4a22, roughness: 1 });
-  if (i % 2 === 0) {
-    // Pine: stacked cones.
-    cylinder(0.28 * s, 0.36 * s, 1.8 * s, trunkMat, x, y + 0.9 * s, z, g, 8);
-    const pineMat = new THREE.MeshStandardMaterial({ color: 0x2e6b2f, roughness: 1 });
-    for (let k = 0; k < 3; k++) {
-      const cone = new THREE.Mesh(
-        new THREE.ConeGeometry((1.9 - k * 0.45) * s, 2.2 * s, 8),
-        pineMat,
-      );
-      cone.position.set(x, y + (2.6 + k * 1.5) * s, z);
-      cone.castShadow = true;
-      cone.receiveShadow = true;
-      g.add(cone);
-    }
-  } else {
-    // Broadleaf: trunk with a cluster of leafy blobs.
-    cylinder(0.3 * s, 0.4 * s, 2.6 * s, trunkMat, x, y + 1.3 * s, z, g, 8);
-    const leafMat = new THREE.MeshStandardMaterial({ color: 0x4d8a33, roughness: 1 });
-    const blobs = [
-      [0, 3.4, 0, 1.7], [-1, 2.8, 0.4, 1.1], [1, 2.9, -0.3, 1.2], [0.2, 4.1, -0.2, 1.1],
-    ];
-    for (const [bx, by, bz, br] of blobs) {
-      const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(br * s, 0), leafMat);
-      blob.position.set(x + bx * s, y + by * s, z + bz * s);
-      blob.castShadow = true;
-      blob.receiveShadow = true;
-      g.add(blob);
+const VILLAGE_HOUSES = [
+  [-30, 6], [-34, -16], [28, -22], [36, 8], [26, 32], [-28, 28], [62, -40], [-64, 48],
+];
+
+function treeSpotOk(x, z) {
+  if (Math.abs(x) > 300 || Math.abs(z) > 300) return false;
+  if (Math.hypot(x, z) < 55) return false; // keep the meadow around the castle open
+  if (riverDistance(x, z) < 10) return false; // no trees standing in the river
+  if (pondDistance(x, z) < 28) return false; // none on the pond shore either
+  for (const [hx, hz] of VILLAGE_HOUSES) {
+    if (Math.hypot(x - hx, z - hz) < 9) return false;
+  }
+  return true;
+}
+
+let forestTreeCount = 0;
+
+function buildForest() {
+  const rng = mulberry32(20261108);
+  const trunkGeos = [];
+  const pineGeos = [];
+  const leafGeos = [];
+  const bushGeos = [];
+  const tuftGeos = [];
+  function plantTree(x, z) {
+    const s = 0.8 + rng() * 0.5;
+    const y = terrainHeight(x, z);
+    const rotY = rng() * Math.PI * 2;
+    if (rng() < 0.55) {
+      // Pine: trunk + three stacked cones.
+      trunkGeos.push(xformGeo(new THREE.CylinderGeometry(0.28, 0.36, 1.8, 7), x, y + 0.9 * s, z, rotY, s));
+      for (let k = 0; k < 3; k++) {
+        pineGeos.push(xformGeo(
+          new THREE.ConeGeometry(1.9 - k * 0.45, 2.2, 7),
+          x, y + (2.6 + k * 1.5) * s, z, rotY, s,
+        ));
+      }
+    } else {
+      // Broadleaf: trunk + a cluster of leafy blobs.
+      trunkGeos.push(xformGeo(new THREE.CylinderGeometry(0.3, 0.4, 2.6, 7), x, y + 1.3 * s, z, rotY, s));
+      const blobs = [
+        [0, 3.4, 0, 1.7], [-1, 2.8, 0.4, 1.1], [1, 2.9, -0.3, 1.2], [0.2, 4.1, -0.2, 1.1],
+      ];
+      for (const [bx, by, bz, br] of blobs) {
+        leafGeos.push(xformGeo(
+          new THREE.IcosahedronGeometry(br, 0),
+          x + bx * s, y + by * s, z + bz * s, rotY, s,
+        ));
+      }
     }
   }
-  scene.add(g);
-  makeSelectable(g, 'Tree');
-  return g;
+  for (const f of FORESTS) {
+    let placed = 0;
+    let tries = 0;
+    while (placed < f.n && tries < f.n * 8) {
+      tries += 1;
+      const a = rng() * Math.PI * 2;
+      const r = Math.sqrt(rng()) * f.r;
+      const x = f.x + Math.cos(a) * r;
+      const z = f.z + Math.sin(a) * r;
+      if (!treeSpotOk(x, z)) continue;
+      plantTree(x, z);
+      placed += 1;
+      forestTreeCount += 1;
+    }
+  }
+  for (const [x, z] of LONE_TREES) {
+    if (treeSpotOk(x, z)) {
+      plantTree(x, z);
+      forestTreeCount += 1;
+    }
+  }
+  // Undergrowth: bushes at the forest edges and grass tufts in the meadow.
+  for (const f of FORESTS) {
+    for (let i = 0; i < 6; i++) {
+      const a = rng() * Math.PI * 2;
+      const r = f.r + 2 + rng() * 7;
+      const x = f.x + Math.cos(a) * r;
+      const z = f.z + Math.sin(a) * r;
+      if (!treeSpotOk(x, z)) continue;
+      const s = 0.7 + rng() * 0.8;
+      const geo = new THREE.IcosahedronGeometry(1, 0);
+      geo.scale(1, 0.65, 1);
+      bushGeos.push(xformGeo(geo, x, terrainHeight(x, z) + 0.45 * s, z, rng() * Math.PI * 2, s));
+    }
+  }
+  for (let i = 0; i < 110; i++) {
+    const a = rng() * Math.PI * 2;
+    const r = 48 + Math.sqrt(rng()) * 240;
+    const x = Math.cos(a) * r;
+    const z = Math.sin(a) * r;
+    if (!treeSpotOk(x, z)) continue;
+    if (Math.abs(x) < 4 && z > 14 && z < 52) continue; // keep the dirt path clear
+    const s = 0.7 + rng() * 0.7;
+    const y = terrainHeight(x, z);
+    for (let k = -1; k <= 1; k++) {
+      tuftGeos.push(xformGeo(
+        new THREE.ConeGeometry(0.16, 0.9, 5),
+        x + k * 0.22 * s, y + 0.4 * s, z + (k % 2) * 0.15 * s, rng() * Math.PI, s,
+      ));
+    }
+  }
+  const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6e4a22, roughness: 1 });
+  const pineMat = new THREE.MeshStandardMaterial({ color: 0x2e6b2f, roughness: 1 });
+  const leafMat = new THREE.MeshStandardMaterial({ color: 0x4d8a33, roughness: 1 });
+  const bushMat = new THREE.MeshStandardMaterial({ color: 0x3a6b2f, roughness: 1 });
+  const tuftMat = new THREE.MeshStandardMaterial({ color: 0x6fae4e, roughness: 1 });
+  function addMerged(geos, mat) {
+    if (geos.length === 0) return;
+    const m = new THREE.Mesh(mergeGeometries(geos), mat);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+  }
+  addMerged(trunkGeos, trunkMat);
+  addMerged(pineGeos, pineMat);
+  addMerged(leafGeos, leafMat);
+  addMerged(bushGeos, bushMat);
+  addMerged(tuftGeos, tuftMat);
 }
-treeSpots.forEach(([x, z], i) => tree(x, z, 0.85 + (i % 4) * 0.15, i));
 
-const rockSpots = [
-  [-52, -22, 1.4], [52, 34, 1.1], [-8, -52, 1.7], [20, 52, 1.2], [-58, 2, 1.0],
-  [120, 60, 1.5], [-130, -90, 1.8], [90, -140, 1.3], [-70, 150, 1.6],
-  [170, -30, 1.2], [-160, 140, 1.4],
-];
+buildForest();
 
-function rock(x, z, r) {
-  const g = new THREE.Group();
-  const m = new THREE.Mesh(
-    new THREE.DodecahedronGeometry(r, 0),
-    new THREE.MeshStandardMaterial({ color: 0x8d8d85, roughness: 1 }),
-  );
-  m.position.set(x, terrainHeight(x, z) + r * 0.45, z);
-  m.rotation.set(Math.random() * 0.6, Math.random() * Math.PI, Math.random() * 0.6);
-  m.castShadow = true;
-  m.receiveShadow = true;
-  g.add(m);
-  scene.add(g);
-  makeSelectable(g, 'Rock');
-  return g;
+// ---------------------------------------------------------------------------
+// Stones: rocks and boulders in natural clusters (Phase 9). A few big
+// boulders near the hills, clusters of smaller rocks, and small stones
+// along the river banks and the pond shore. Varied sizes and two grey
+// tones, sunk partway into the ground for a half-buried look. Two merged
+// meshes, not selectable, no gameplay effect.
+// ---------------------------------------------------------------------------
+let rockCount = 0;
+
+function buildRocks() {
+  const rng = mulberry32(77031);
+  const greyA = [];
+  const greyB = [];
+  function plantRock(x, z, s, sink) {
+    const y = terrainHeight(x, z) + (0.35 - sink) * s;
+    const geo = new THREE.DodecahedronGeometry(1.4, 0);
+    geo.rotateX(rng() * Math.PI);
+    geo.rotateZ(rng() * Math.PI);
+    (rng() < 0.5 ? greyA : greyB).push(
+      xformGeo(geo, x, y, z, rng() * Math.PI * 2, s),
+    );
+    rockCount += 1;
+  }
+  function rockSpotOk(x, z) {
+    if (Math.abs(x) > 300 || Math.abs(z) > 300) return false;
+    if (Math.hypot(x, z) < 52) return false; // keep the castle ground clear
+    if (riverDistance(x, z) < 6.5) return false; // not in the river channel
+    if (pondDistance(x, z) < POND_R + 1) return false; // not in the pond
+    for (const [hx, hz] of VILLAGE_HOUSES) {
+      if (Math.hypot(x - hx, z - hz) < 8) return false;
+    }
+    return true;
+  }
+  // Big boulders near the hills.
+  const boulders = [
+    [-150, -130], [150, -140], [-60, -170], [175, 60], [-170, 60], [40, 170],
+    [260, 40], [-260, 60],
+  ];
+  for (const [x, z] of boulders) {
+    if (rockSpotOk(x, z)) plantRock(x, z, 2.8 + rng() * 1.2, 0.6);
+  }
+  // Rock clusters: five groups of 4-7 mid rocks, plus two on the far land.
+  const clusters = [
+    [-120, -150], [130, -140], [170, -30], [-170, 25], [90, 150],
+    [230, 200], [-240, -180],
+  ];
+  for (const [cx, cz] of clusters) {
+    const n = 4 + Math.floor(rng() * 4);
+    for (let i = 0; i < n; i++) {
+      const x = cx + (rng() * 2 - 1) * 10;
+      const z = cz + (rng() * 2 - 1) * 10;
+      if (!rockSpotOk(x, z)) continue;
+      plantRock(x, z, 0.7 + rng() * 0.9, 0.55);
+    }
+  }
+  // Small stones along the river banks: both banks, a stone every few units.
+  for (let x = -312; x <= 312; x += 7) {
+    const zc = riverZ(x);
+    for (const side of [-1, 1]) {
+      if (rng() < 0.55) continue; // gaps, not a solid wall
+      const z = zc + side * (8 + rng() * 4);
+      if (!rockSpotOk(x, z)) continue;
+      plantRock(x, z, 0.3 + rng() * 0.45, 0.7);
+    }
+  }
+  // Small stones around the pond shore.
+  for (let i = 0; i < 10; i++) {
+    const a = rng() * Math.PI * 2;
+    const r = POND_R + 2 + rng() * 4;
+    const x = POND_X + Math.cos(a) * r;
+    const z = POND_Z + Math.sin(a) * r;
+    if (!rockSpotOk(x, z)) continue;
+    plantRock(x, z, 0.35 + rng() * 0.4, 0.7);
+  }
+  const matA = new THREE.MeshStandardMaterial({ color: 0x8d8d8d, roughness: 1 });
+  const matB = new THREE.MeshStandardMaterial({ color: 0x6e6e6e, roughness: 1 });
+  for (const [geos, mat] of [[greyA, matA], [greyB, matB]]) {
+    if (geos.length === 0) continue;
+    const m = new THREE.Mesh(mergeGeometries(geos), mat);
+    m.castShadow = true;
+    m.receiveShadow = true;
+    scene.add(m);
+  }
 }
-rockSpots.forEach(([x, z, r]) => rock(x, z, r));
+
+buildRocks();
+
+// ---------------------------------------------------------------------------
+// Water: a winding river and a small pond (Phase 9). The river surface is
+// a long sheet of quads that follows the river centreline; each vertex
+// sits one unit above the channel bottom at its own position, so the
+// sheet follows the valley floor with no steps. It is wider than the
+// point where the ground rises above the water level, so its edges sink
+// into the banks instead of floating. A canvas texture of pale flow
+// streaks scrolls along the river in the animation loop, so the water
+// visibly moves. The pond is a still disc in the south-west meadow.
+// Enemies walk straight across the shallow river on their way to the
+// keep, their feet on the channel bottom, so crossing it looks like
+// wading and needs no pathing change.
+// ---------------------------------------------------------------------------
+function makeWaterTexture() {
+  const c = document.createElement('canvas');
+  c.width = 256;
+  c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#3f8fbf';
+  g.fillRect(0, 0, 256, 256);
+  // Flow streaks: pale dashes running along the canvas Y axis, which
+  // maps to the river's length (the V texture coordinate).
+  const rng = mulberry32(5150);
+  for (let i = 0; i < 90; i++) {
+    const x = rng() * 256;
+    const y = rng() * 256;
+    const len = 14 + rng() * 34;
+    g.strokeStyle = `rgba(255,255,255,${0.10 + rng() * 0.16})`;
+    g.lineWidth = 1 + rng() * 2;
+    g.beginPath();
+    g.moveTo(x, y);
+    g.lineTo(x, y + len);
+    g.stroke();
+  }
+  const tex = new THREE.CanvasTexture(c);
+  tex.wrapS = THREE.RepeatWrapping;
+  tex.wrapT = THREE.RepeatWrapping;
+  return tex;
+}
+
+const riverWaterMat = new THREE.MeshStandardMaterial({
+  map: makeWaterTexture(), color: 0x9fd4e8, roughness: 0.25, metalness: 0.1,
+  transparent: true, opacity: 0.92,
+});
+const pondWaterMat = new THREE.MeshStandardMaterial({
+  map: makeWaterTexture(), color: 0x9fd4e8, roughness: 0.25, metalness: 0.1,
+  transparent: true, opacity: 0.92,
+});
+
+const riverPoints = [];
+{
+  const geos = [];
+  const HALF_WIDTH = 13;
+  for (let x = -316; x <= 316; x += 4) {
+    const quad = new THREE.PlaneGeometry(HALF_WIDTH * 2, 4);
+    // After the two rotations the plane lies flat: local X runs along
+    // the river (length 4), local Z runs across it (width 26).
+    quad.rotateX(-Math.PI / 2);
+    quad.rotateY(Math.PI / 2);
+    const pos = quad.attributes.position;
+    for (let i = 0; i < pos.count; i++) {
+      const along = pos.getX(i); // -2..2, along the river
+      const across = pos.getZ(i); // -13..13, across the river
+      const wx = x + along;
+      const wz = riverZ(wx) + across;
+      // One unit above the channel bottom at this exact spot.
+      pos.setY(i, terrainHeight(wx, riverZ(wx)) + 1.0);
+      pos.setX(i, wx);
+      pos.setZ(i, wz);
+    }
+    // UVs: U runs across the river (one texture repeat), V runs along
+    // it so the streaks scroll with the flow.
+    const uv = quad.attributes.uv;
+    for (let i = 0; i < uv.count; i++) {
+      uv.setXY(i, uv.getX(i), pos.getX(i) / 24);
+    }
+    geos.push(quad);
+    riverPoints.push([x, riverZ(x)]);
+  }
+  const river = new THREE.Mesh(mergeGeometries(geos), riverWaterMat);
+  scene.add(river);
+}
+
+// The pond: a still disc in the south meadow, wide enough that its
+// rim sinks into the bowl's slope.
+const pond = new THREE.Mesh(
+  new THREE.CircleGeometry(30, 40),
+  pondWaterMat,
+);
+pond.rotation.x = -Math.PI / 2;
+pond.position.set(POND_X, terrainHeight(POND_X, POND_Z) + 1.0, POND_Z);
+scene.add(pond);
 
 // ---------------------------------------------------------------------------
 // HUD
@@ -1238,6 +1536,10 @@ function placeTowerAt(x, z) {
 function placeAt(kind, x, z) {
   if (Math.abs(x) > 100 || Math.abs(z) > 100) {
     setStatus('Too far out, build closer to the castle');
+    return false;
+  }
+  if (isInWater(x, z)) {
+    setStatus('Too wet to build here');
     return false;
   }
   const cost = COSTS[kind];
@@ -1659,6 +1961,265 @@ function updateEnemies(delta, elapsed) {
 }
 
 // ---------------------------------------------------------------------------
+// Animals: ambient wildlife (Phase 9). A small herd of deer, a few
+// rabbits and birds flying overhead. They wander, graze (head down),
+// change direction, and keep to the forest and meadow areas, away from
+// the castle. They are ambient only: towers ignore them, enemies ignore
+// them, and they never affect resources or waves. Deer share one body
+// geometry and material; the animation is per-animal pivots.
+// ---------------------------------------------------------------------------
+const animals = [];
+const deerList = [];
+const rabbitList = [];
+const birdList = [];
+
+const deerBodyMat = new THREE.MeshStandardMaterial({ color: 0x8a6b4a, roughness: 1 });
+const deerDarkMat = new THREE.MeshStandardMaterial({ color: 0x5f4830, roughness: 1 });
+const deerAntlerMat = new THREE.MeshStandardMaterial({ color: 0xd8cdb8, roughness: 1 });
+const rabbitMat = new THREE.MeshStandardMaterial({ color: 0x9b8f7a, roughness: 1 });
+const birdMat = new THREE.MeshStandardMaterial({ color: 0x3a3a3a, roughness: 1 });
+
+const deerBodyGeo = new THREE.BoxGeometry(1.15, 0.62, 0.5);
+const deerHeadGeo = new THREE.BoxGeometry(0.26, 0.26, 0.48);
+const deerEarGeo = new THREE.BoxGeometry(0.1, 0.18, 0.04);
+const deerLegGeo = new THREE.BoxGeometry(0.09, 0.62, 0.09);
+const deerAntlerGeo = new THREE.CylinderGeometry(0.03, 0.05, 0.5, 5);
+const rabbitBodyGeo = new THREE.SphereGeometry(0.28, 8, 6);
+const rabbitHeadGeo = new THREE.SphereGeometry(0.17, 8, 6);
+const rabbitEarGeo = new THREE.BoxGeometry(0.05, 0.3, 0.03);
+const birdBodyGeo = new THREE.ConeGeometry(0.16, 0.9, 5);
+const birdWingGeo = new THREE.BoxGeometry(0.3, 0.04, 0.9);
+
+function makeDeer(x, z, hasAntlers) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(deerBodyGeo, deerBodyMat);
+  body.position.y = 0.72;
+  body.castShadow = true;
+  g.add(body);
+  // The neck pivots low on the chest so it can swing from upright down
+  // to the grass for grazing.
+  const neck = new THREE.Group();
+  neck.position.set(0.52, 0.62, 0);
+  const neckMesh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.85, 0.16), deerBodyMat);
+  neckMesh.position.y = 0.42;
+  neckMesh.castShadow = true;
+  neck.add(neckMesh);
+  const head = new THREE.Mesh(deerHeadGeo, deerBodyMat);
+  head.position.set(0.08, 0.88, 0);
+  head.castShadow = true;
+  neck.add(head);
+  for (const side of [1, -1]) {
+    const ear = new THREE.Mesh(deerEarGeo, deerDarkMat);
+    ear.position.set(-0.02, 0.95, side * 0.16);
+    ear.rotation.x = side * 0.4;
+    neck.add(ear);
+  }
+  if (hasAntlers) {
+    for (const side of [1, -1]) {
+      const antler = new THREE.Mesh(deerAntlerGeo, deerAntlerMat);
+      antler.position.set(-0.04, 1.08, side * 0.12);
+      antler.rotation.z = -0.25;
+      neck.add(antler);
+    }
+  }
+  g.add(neck);
+  const legs = [];
+  for (const [lx, lz] of [[0.42, 0.18], [0.42, -0.18], [-0.42, 0.18], [-0.42, -0.18]]) {
+    const leg = new THREE.Group();
+    leg.position.set(lx, 0.62, lz);
+    const mesh = new THREE.Mesh(deerLegGeo, deerDarkMat);
+    mesh.position.y = -0.31;
+    mesh.castShadow = true;
+    leg.add(mesh);
+    g.add(leg);
+    legs.push(leg);
+  }
+  g.position.set(x, terrainHeight(x, z), z);
+  scene.add(g);
+  const a = {
+    group: g, neck, legs, kind: 'deer',
+    home: { x, z }, heading: Math.random() * Math.PI * 2,
+    state: 'idle', stateT: 1 + Math.random() * 2,
+    speed: 1.15, wanderR: 45, phase: Math.random() * Math.PI * 2,
+  };
+  animals.push(a);
+  deerList.push(a);
+  return a;
+}
+
+function makeRabbit(x, z) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(rabbitBodyGeo, rabbitMat);
+  body.scale.set(1.25, 0.85, 0.8);
+  body.position.y = 0.24;
+  body.castShadow = true;
+  g.add(body);
+  const head = new THREE.Mesh(rabbitHeadGeo, rabbitMat);
+  head.position.set(0.28, 0.36, 0);
+  head.castShadow = true;
+  g.add(head);
+  for (const side of [1, -1]) {
+    const ear = new THREE.Mesh(rabbitEarGeo, rabbitMat);
+    ear.position.set(0.26, 0.58, side * 0.07);
+    ear.rotation.z = -0.15;
+    g.add(ear);
+  }
+  g.position.set(x, terrainHeight(x, z), z);
+  scene.add(g);
+  const a = {
+    group: g, kind: 'rabbit',
+    home: { x, z }, heading: Math.random() * Math.PI * 2,
+    state: 'idle', stateT: 1 + Math.random() * 2,
+    speed: 1.7, wanderR: 18, phase: Math.random() * Math.PI * 2,
+  };
+  animals.push(a);
+  rabbitList.push(a);
+  return a;
+}
+
+function makeBird(cx, cz) {
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(birdBodyGeo, birdMat);
+  body.rotation.z = -Math.PI / 2; // the cone points along +X (forward)
+  g.add(body);
+  const wingL = new THREE.Group();
+  wingL.position.set(0, 0.05, 0.08);
+  const wl = new THREE.Mesh(birdWingGeo, birdMat);
+  wl.position.z = 0.45;
+  wingL.add(wl);
+  g.add(wingL);
+  const wingR = new THREE.Group();
+  wingR.position.set(0, 0.05, -0.08);
+  const wr = new THREE.Mesh(birdWingGeo, birdMat);
+  wr.position.z = -0.45;
+  wingR.add(wr);
+  g.add(wingR);
+  const a = {
+    group: g, wingL, wingR, kind: 'bird',
+    centre: { x: cx, z: cz },
+    home: { x: cx, z: cz },
+    angle: Math.random() * Math.PI * 2,
+    angularSpeed: 0.12 + Math.random() * 0.08,
+    radius: 55 + Math.random() * 36,
+    height: 38 + Math.random() * 10,
+    state: 'fly', stateT: 8 + Math.random() * 8,
+    phase: Math.random() * Math.PI * 2,
+  };
+  const p = g.position;
+  p.x = cx + Math.cos(a.angle) * a.radius;
+  p.z = cz + Math.sin(a.angle) * a.radius;
+  p.y = a.height;
+  scene.add(g);
+  animals.push(a);
+  birdList.push(a);
+  return a;
+}
+
+// One deer per forest, antlers on two of them.
+makeDeer(-75, -165, true);
+makeDeer(75, -165, false);
+makeDeer(140, -110, true);
+makeDeer(-140, -110, false);
+makeDeer(-150, 85, false);
+// Rabbits near the forest edges.
+makeRabbit(-60, -140);
+makeRabbit(90, -140);
+makeRabbit(120, 100);
+makeRabbit(-130, 60);
+// Birds circling high over the map.
+makeBird(0, -80);
+makeBird(-100, 0);
+makeBird(100, 40);
+makeBird(-40, 120);
+makeBird(60, -140);
+
+function animalHomeOk(x, z) {
+  const r = Math.hypot(x, z);
+  if (r < 60) return false; // away from the castle
+  if (Math.abs(x) > 195 || Math.abs(z) > 195) return false;
+  if (riverDistance(x, z) < 12) return false; // not in or at the river
+  if (pondDistance(x, z) < POND_R + 6) return false; // not in the pond
+  return true;
+}
+
+function updateAnimals(delta, elapsed) {
+  for (const a of animals) {
+    a.stateT -= delta;
+    if (a.stateT <= 0) {
+      const roll = Math.random();
+      if (a.kind === 'bird') {
+        a.state = 'fly';
+        a.stateT = 8 + Math.random() * 8;
+      } else if (roll < 0.40) {
+        a.state = 'graze';
+        a.stateT = 3 + Math.random() * 4;
+      } else if (roll < 0.65) {
+        a.state = 'idle';
+        a.stateT = 2 + Math.random() * 3;
+      } else {
+        a.state = 'walk';
+        a.stateT = 3 + Math.random() * 3;
+        // Turn toward a random nearby point that stays in good ground.
+        for (let tries = 0; tries < 6; tries++) {
+          const ang = Math.random() * Math.PI * 2;
+          const dist = 8 + Math.random() * 18;
+          const tx = a.group.position.x + Math.cos(ang) * dist;
+          const tz = a.group.position.z + Math.sin(ang) * dist;
+          if (animalHomeOk(tx, tz) && Math.hypot(tx - a.home.x, tz - a.home.z) < a.wanderR) {
+            a.heading = Math.atan2(tz - a.group.position.z, tx - a.group.position.x);
+            break;
+          }
+        }
+      }
+    }
+    const p = a.group.position;
+    if (a.kind === 'bird') {
+      a.angle += a.angularSpeed * delta;
+      p.x = a.centre.x + Math.cos(a.angle) * a.radius;
+      p.z = a.centre.z + Math.sin(a.angle) * a.radius;
+      p.y = a.height + Math.sin(elapsed * 0.7 + a.phase) * 1.5;
+      a.group.rotation.y = Math.atan2(-Math.cos(a.angle), -Math.sin(a.angle));
+      const flap = Math.sin(elapsed * 8 + a.phase) * 0.5;
+      a.wingL.rotation.x = flap;
+      a.wingR.rotation.x = -flap;
+      continue;
+    }
+    if (a.state === 'walk') {
+      const step = a.speed * delta;
+      const nx = p.x + Math.cos(a.heading) * step;
+      const nz = p.z + Math.sin(a.heading) * step;
+      if (animalHomeOk(nx, nz) && Math.hypot(nx - a.home.x, nz - a.home.z) < a.wanderR) {
+        p.x = nx;
+        p.z = nz;
+      } else {
+        a.heading += Math.PI / 2; // turn away from the bad ground
+      }
+      // Rabbits hop while they move.
+      p.y = terrainHeight(p.x, p.z) + (a.kind === 'rabbit' ? Math.abs(Math.sin(elapsed * 6 + a.phase)) * 0.3 : 0);
+      a.group.rotation.y = Math.atan2(-Math.sin(a.heading), Math.cos(a.heading));
+      const swing = Math.sin(elapsed * 7 + a.phase);
+      if (a.legs) {
+        a.legs[0].rotation.x = swing * 0.5;
+        a.legs[1].rotation.x = -swing * 0.5;
+        a.legs[2].rotation.x = -swing * 0.5;
+        a.legs[3].rotation.x = swing * 0.5;
+      }
+      if (a.neck) a.neck.rotation.z += (0.15 - a.neck.rotation.z) * Math.min(1, delta * 4);
+    } else if (a.state === 'graze') {
+      p.y = terrainHeight(p.x, p.z);
+      if (a.neck) a.neck.rotation.z += (-1.5 - a.neck.rotation.z) * Math.min(1, delta * 3);
+    } else {
+      // Idle: head up, legs still.
+      p.y = terrainHeight(p.x, p.z);
+      if (a.neck) a.neck.rotation.z += (0.15 - a.neck.rotation.z) * Math.min(1, delta * 4);
+      if (a.legs) {
+        for (const leg of a.legs) leg.rotation.x *= 0.9;
+      }
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Picking: click to select, placement mode drops a building
 // ---------------------------------------------------------------------------
 const raycaster = new THREE.Raycaster();
@@ -1684,13 +2245,17 @@ renderer.domElement.addEventListener('pointermove', (e) => {
     ghost.visible = false;
     return;
   }
+  const gx = Math.round(p.x / 2) * 2;
+  const gz = Math.round(p.z / 2) * 2;
   ghost.position.set(
-    Math.round(p.x / 2) * 2,
+    gx,
     terrainHeight(p.x, p.z),
-    Math.round(p.z / 2) * 2,
+    gz,
   );
   ghost.visible = true;
-  ghostMat.color.setHex(canAfford(COSTS[state.placing]) ? 0x7ec850 : 0xd23b2e);
+  ghostMat.color.setHex(
+    canAfford(COSTS[state.placing]) && !isInWater(gx, gz) ? 0x7ec850 : 0xd23b2e,
+  );
 });
 
 // Distinguish a click from an orbit drag.
@@ -1740,6 +2305,8 @@ function animate() {
   elapsed += delta;
   // Gentle flag wave.
   flag.rotation.y = Math.sin(elapsed * 2.2) * 0.18;
+  // The river flows: scroll the streak texture along the river.
+  riverWaterMat.map.offset.y -= delta * 0.02;
   // Torch flames flicker.
   for (const t of torchLights) {
     t.light.intensity = 13 + Math.sin(elapsed * 11 + t.phase) * 2 + Math.sin(elapsed * 23 + t.phase * 2) * 1;
@@ -1755,7 +2322,7 @@ function animate() {
   // Clouds drift across the sky.
   for (const cloud of clouds) {
     cloud.position.x += cloud.userData.drift * delta;
-    if (cloud.position.x > 280) cloud.position.x = -280;
+    if (cloud.position.x > 380) cloud.position.x = -380;
   }
   // Banners sway gently.
   for (let i = 0; i < banners.length; i++) {
@@ -1789,19 +2356,20 @@ function animate() {
   updateTowers(delta);
   updateArrows(delta);
   updateEnemies(delta, elapsed);
+  updateAnimals(delta, elapsed);
   checkWaveEnd();
   controls.update();
   // Camera bounds: keep the orbit target over the playable map (build
   // placement reaches radius 100) so the camera can never be panned out
-  // among the mountains looking back at the map.
+  // past the far hills looking back at the map.
   const targetR = Math.hypot(controls.target.x, controls.target.z);
   if (targetR > 110) {
     const s = 110 / targetR;
     controls.target.x *= s;
     controls.target.z *= s;
   }
-  // ... and keep the camera itself inside the mountain ring (radius 220),
-  // so a ring peak can never end up between the camera and the castle.
+  // ... and keep the camera itself inside radius 220, so the fog and the
+  // far hills always hide the terrain edge from view.
   const camR = Math.hypot(camera.position.x, camera.position.z);
   if (camR > 220) {
     const s = 220 / camR;
@@ -1839,12 +2407,24 @@ window.__castle = {
     chimneys: () => chimneys.length,
   },
   horizon: {
-    mountains: () => MOUNTAIN_COUNT,
     fog: () => ({
       near: scene.fog.near,
       far: scene.fog.far,
       color: '#' + scene.fog.color.getHexString(),
     }),
+  },
+  world: {
+    trees: () => forestTreeCount,
+    rocks: () => rockCount,
+    animals: () => animals.length,
+    deer: () => deerList.length,
+    deerPositions: () => deerList.map((d) => [d.group.position.x, d.group.position.z]),
+    riverPoints: () => riverPoints.length,
+    terrain: (x, z) => terrainHeight(x, z),
+    riverZ: (x) => riverZ(x),
+    riverWaterLevel: (x) => terrainHeight(x, riverZ(x)) + 1.0,
+    pond: () => ({ x: POND_X, z: POND_Z, r: POND_R }),
+    pondWaterLevel: () => terrainHeight(POND_X, POND_Z) + 1.0,
   },
 };
 
