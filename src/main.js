@@ -12,6 +12,8 @@
 // camera can travel the whole map (target clamp 300, camera clamp 340),
 // with an outer terrain ring out to 1280 so the terrain edge stays beyond
 // the fog from every camera angle, and zoom-scaled WASD panning.
+// Then: walls face the camera when placed, the gate and dirt road are
+// gone, and a King stands by the keep.
 // A Stronghold-style castle builder scene: procedural low-poly geometry only,
 // no external models, images or audio. Three.js + OrbitControls, bundled by Vite.
 
@@ -1717,6 +1719,67 @@ function createSoldier(variant) {
   return { group: g, limbs: { legL, legR, armL, armR } };
 }
 
+// The King: one royal figure standing by the keep, built the same
+// procedural way as the soldiers but clearly distinct: a long purple
+// robe (no visible legs), a crimson cape, a gold belt and collar, a
+// white beard, a gold crown with a red jewel, and a gold scepter with
+// an orb in his right hand. He is ambient, never an enemy and never
+// part of combat: the castle's king, watching over his stronghold.
+const kingRobeMat = new THREE.MeshStandardMaterial({ color: 0x6b2d8f, roughness: 0.9 });
+const kingCrimsonMat = new THREE.MeshStandardMaterial({ color: 0x8a1f2d, roughness: 0.9 });
+const kingGoldMat = new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.35, metalness: 0.6 });
+const kingBeardMat = new THREE.MeshStandardMaterial({ color: 0xe8e4da, roughness: 1 });
+
+function createKing() {
+  const g = new THREE.Group();
+  // Long robe from shoulders to the ground.
+  const robe = new THREE.Mesh(new THREE.CylinderGeometry(0.55, 0.85, 1.9, 12), kingRobeMat);
+  robe.position.y = 0.95;
+  robe.castShadow = true;
+  robe.receiveShadow = true;
+  g.add(robe);
+  // Crimson cape hanging down the back.
+  box(1.0, 1.6, 0.1, kingCrimsonMat, 0, 1.5, -0.48, g);
+  // Gold belt and collar trim.
+  box(1.02, 0.12, 0.72, kingGoldMat, 0, 1.15, 0, g);
+  box(1.12, 0.1, 0.68, kingGoldMat, 0, 2.12, 0, g);
+  // Arms in robe sleeves, hanging at his sides.
+  const armL = limbMesh(0.22, 0.8, 0.24, kingRobeMat, -0.62, 1.95);
+  g.add(armL);
+  const armR = limbMesh(0.22, 0.8, 0.24, kingRobeMat, 0.62, 1.95);
+  // Scepter: gold rod with an orb on top, held in the right hand.
+  cylinder(0.05, 0.05, 2.0, kingGoldMat, 0, 0.1, 0.1, armR, 6);
+  const orb = new THREE.Mesh(new THREE.SphereGeometry(0.15, 12, 10), kingGoldMat);
+  orb.position.set(0, 1.18, 0.1);
+  orb.castShadow = true;
+  armR.add(orb);
+  g.add(armR);
+  // Head with a white beard.
+  box(0.55, 0.55, 0.55, enemySkinMat, 0, 2.5, 0, g);
+  box(0.45, 0.5, 0.14, kingBeardMat, 0, 2.18, 0.28, g);
+  // Gold crown: band, five points and a red jewel at the front.
+  cylinder(0.34, 0.36, 0.16, kingGoldMat, 0, 2.86, 0, g, 12);
+  for (let i = 0; i < 5; i++) {
+    const a = (i / 5) * Math.PI * 2;
+    const spike = new THREE.Mesh(new THREE.ConeGeometry(0.08, 0.22, 6), kingGoldMat);
+    spike.position.set(Math.cos(a) * 0.28, 3.02, Math.sin(a) * 0.28);
+    spike.castShadow = true;
+    g.add(spike);
+  }
+  box(0.12, 0.12, 0.06, kingCrimsonMat, 0, 2.86, 0.37, g);
+  return { group: g, limbs: { armL, armR } };
+}
+
+// The King stands on the courtyard disc, south-east of the keep, facing
+// the default camera.
+const KING_FACE = Math.PI / 4;
+const king = createKing();
+king.group.position.set(7.5, terrainHeight(7.5, 7.5), 7.5);
+king.group.rotation.y = KING_FACE;
+scene.add(king.group);
+makeSelectable(king.group, 'The King');
+const kingBaseY = king.group.position.y;
+
 function createEnemy(x, z, speed, variant = 0) {
   const s = createSoldier(variant);
   s.group.position.set(x, terrainHeight(x, z), z);
@@ -2257,6 +2320,12 @@ function animate() {
   elapsed += delta;
   // Gentle flag wave.
   flag.rotation.y = Math.sin(elapsed * 2.2) * 0.18;
+  // The King idles by the keep: a gentle breathing bob, a slow sway
+  // and a slight swing of the arms.
+  king.group.position.y = kingBaseY + Math.sin(elapsed * 1.1) * 0.05;
+  king.group.rotation.y = KING_FACE + Math.sin(elapsed * 0.7) * 0.04;
+  king.limbs.armL.rotation.x = Math.sin(elapsed * 1.1) * 0.06;
+  king.limbs.armR.rotation.x = -Math.sin(elapsed * 1.1) * 0.06;
   // The wall ghost follows the camera angle, so the player sees the
   // angle the wall will be placed at before clicking.
   if (state.placing === 'wall') ghost.rotation.y = controls.getAzimuthalAngle();
@@ -2423,6 +2492,7 @@ window.__castle = {
     pond: () => ({ x: POND_X, z: POND_Z, r: POND_R }),
     pondWaterLevel: () => terrainHeight(POND_X, POND_Z) + 1.0,
     ringTriangles: () => ringTriangleCount,
+    king: () => [king.group.position.x, +king.group.position.y.toFixed(3), king.group.position.z],
   },
 };
 
