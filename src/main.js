@@ -198,8 +198,12 @@ camera.position.set(56, 42, 56);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 2, 0);
-controls.enableDamping = true;
-controls.dampingFactor = 0.08;
+// No damping, on purpose. OrbitControls applies only dampingFactor of a
+// drag per rendered frame (0.08 here), so at the few frames per second this
+// game runs at on weak hardware a drag takes a minute to play out and the
+// camera looks stuck on the castle. With damping off, a drag, zoom or pan
+// applies in full on the next rendered frame at any frame rate.
+controls.enableDamping = false;
 controls.minDistance = 14;
 controls.maxDistance = 220;
 controls.maxPolarAngle = Math.PI / 2 - 0.04; // never go under the ground
@@ -1474,6 +1478,20 @@ window.addEventListener('keydown', (e) => {
   }
 });
 
+// Keyboard panning: WASD / arrow keys move the view across the map, so the
+// camera can travel away from the castle without a right-drag (awkward on
+// a laptop touchpad). Keys are tracked here and applied in the render loop,
+// scaled by frame delta, so the speed is the same at any frame rate.
+const panKeys = new Set();
+const PAN_KEYS = ['w', 'a', 's', 'd', 'arrowup', 'arrowdown', 'arrowleft', 'arrowright'];
+window.addEventListener('keydown', (e) => {
+  const k = e.key.toLowerCase();
+  if (PAN_KEYS.includes(k)) panKeys.add(k);
+});
+window.addEventListener('keyup', (e) => {
+  panKeys.delete(e.key.toLowerCase());
+});
+
 function placeWallAt(x, z) {
   const gx = Math.round(x / 2) * 2;
   const gz = Math.round(z / 2) * 2;
@@ -2358,6 +2376,24 @@ function animate() {
   updateEnemies(delta, elapsed);
   updateAnimals(delta, elapsed);
   checkWaveEnd();
+  // Keyboard pan: move the orbit target in camera-relative directions.
+  // The target clamp below keeps it inside the map.
+  if (panKeys.size > 0) {
+    const forward = new THREE.Vector3();
+    camera.getWorldDirection(forward);
+    forward.y = 0;
+    forward.normalize();
+    const right = new THREE.Vector3().crossVectors(forward, new THREE.Vector3(0, 1, 0));
+    const move = new THREE.Vector3();
+    if (panKeys.has('w') || panKeys.has('arrowup')) move.add(forward);
+    if (panKeys.has('s') || panKeys.has('arrowdown')) move.sub(forward);
+    if (panKeys.has('d') || panKeys.has('arrowright')) move.add(right);
+    if (panKeys.has('a') || panKeys.has('arrowleft')) move.sub(right);
+    if (move.lengthSq() > 0) {
+      move.normalize().multiplyScalar(32 * delta);
+      controls.target.add(move);
+    }
+  }
   controls.update();
   // Camera bounds: keep the orbit target over the playable map (build
   // placement reaches radius 100) so the camera can never be panned out

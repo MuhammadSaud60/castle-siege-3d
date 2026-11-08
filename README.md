@@ -113,6 +113,15 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
   deer, four rabbits and five birds live in the forest and meadow: they
   wander, graze and change direction, and they never affect gameplay.
   Nothing about the castle, economy, waves or balance changed.
+- **Camera fix (done):** The camera looked stuck on the castle: a drag
+  barely moved it. Root cause was OrbitControls damping, which applies
+  only 8% of a drag per rendered frame, so at the few frames per second
+  this game runs at on weak hardware a drag took a minute to play out.
+  Damping is off now, so drags, zoom and pan apply in full on the next
+  frame at any frame rate. WASD / arrow keys were also added to move the
+  view across the map (right-drag pans too), since left-drag only orbits
+  the castle. The camera bounds are unchanged (target inside radius 110,
+  camera inside radius 220), so the terrain edge stays hidden.
 
 ## Audio credits
 
