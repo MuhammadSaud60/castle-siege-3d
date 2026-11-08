@@ -2,8 +2,8 @@
 
 A Stronghold-style castle builder and siege defence game that runs entirely in
 the browser. Built with Vite + Three.js. All 3D content is procedural low-poly
-geometry, there are no external models, images, audio files or CDN links, so
-the game is fully self-contained.
+geometry, and all audio files are bundled locally, there are no external
+models, images or CDN links, so the game is fully self-contained.
 
 ## How to run
 
@@ -34,6 +34,10 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
   towers shoot arrows at enemies in range, 2 hits kill one. An enemy that
   reaches the keep deals 10 damage. Clearing a wave pays +20 Gold. If Keep
   HP reaches 0 the castle has fallen and the page offers a restart.
+- Sound: the `Sound: On/Off` button (or the `M` key) toggles sound, and the
+  choice is remembered. Music starts after your first click, browsers block
+  audio before any interaction. Arrow shots, hits, deaths, building, the
+  wave horn, the victory fanfare, keep damage and game over all have sounds.
 
 ## Phase plan
 
@@ -43,8 +47,35 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
 - **Phase 2 (done):** Economy and enemy waves. Passive income tick, build
   menu (house, farm, tower, wall), enemy waves with tower archers, keep HP
   and win/lose conditions.
-- **Phase 3: Sounds and music from free sources.** Interface clicks, battle
-  sounds and ambient medieval music from free libraries (Freesound,
-  OpenGameArt, Pixabay Music, Kevin MacLeod), plus polish and a start screen.
+- **Phase 3 (done):** Sounds and music from free sources. Arrow shots,
+  enemy hits and deaths, building, wave horn, victory fanfare, keep damage,
+  game over and UI clicks, plus a quiet ambient medieval music loop with a
+  mute button (and M key). All audio is bundled locally in `public/audio/`.
 - **Phase 4: Save and leaderboard server backend.** Game progress saved on
   the server, a leaderboard, and the frontend talking to the backend API.
+
+## Audio credits
+
+Every sound and the music track come from free libraries, downloaded without
+an account. Files live in `public/audio/` (MP3, mono, compressed).
+
+| File | Used for | Source | Author | License |
+| --- | --- | --- | --- | --- |
+| `music.mp3` | Background music (60 s loop) | "Morgana Rides" by Kevin MacLeod, incompetech.com | Kevin MacLeod | CC-BY 4.0 |
+| `shoot.mp3` | Arrow shot | "Bow & Arrow Shot", opengameart.org/content/bow-arrow-shot | ripple182 | CC-BY-SA 3.0 |
+| `hit.mp3` | Enemy hit | "5 Hit Sounds + Dying", opengameart.org/content/5-hit-sounds-dying | alket | CC0 |
+| `death.mp3` | Enemy death | "5 Hit Sounds + Dying", opengameart.org/content/5-hit-sounds-dying | alket | CC0 |
+| `build.mp3` | Building placed | "75 CC0 breaking / falling / hit sfx", opengameart.org/content/75-cc0-breaking-falling-hit-sfx | frances | CC0 |
+| `horn.mp3` | Wave start | "Their Coming (generic horn sound)", opengameart.org/content/their-coming-generic-horn-sound | StumpyStrust | CC0 |
+| `victory.mp3` | Wave cleared | "Victory Fanfare Short", opengameart.org/content/victory-fanfare-short | Thalon | CC0 |
+| `thud.mp3` | Keep damaged | "Thud Underfoot", opengameart.org/content/thud-underfoot | spookymodem | CC-BY 3.0 |
+| `gameover.mp3` | Castle fallen | "The End (Death Screen mix)", opengameart.org/content/the-end-death-screen-mix | yd (mix by Avgvst, music by Metaruka) | CC-BY-SA 3.0 |
+| `click.mp3` | UI button click | "Button Click Sound Effect", opengameart.org/content/button-click-sound-effect-cc0public-domain | qubodup | CC0 |
+
+Notes: the "Medieval Horn" pack on OpenGameArt turned out to be a 3D model,
+not audio, so the wave horn uses "Their Coming" instead. The "Build" track
+on OpenGameArt is an 87 second music piece, not a placement sound, so
+building uses a wood hit from the CC0 breaking/falling pack. The game over
+track was trimmed to its first 12 seconds and the victory fanfare to 6
+seconds; the music is a 60 second section of "Morgana Rides" with soft
+fades so the loop is gentle.

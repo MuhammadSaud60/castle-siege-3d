@@ -6,6 +6,107 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // ---------------------------------------------------------------------------
+// Audio: sound effects and background music (Phase 3)
+// All files are bundled locally in public/audio/. Audio starts only after
+// the player's first interaction (browser autoplay rules). M or the Sound
+// button toggles mute; the choice is saved in localStorage.
+// ---------------------------------------------------------------------------
+const AUDIO_BASE = import.meta.env.BASE_URL + 'audio/';
+
+const SOUND_DEFS = {
+  shoot: { file: 'shoot.mp3', volume: 0.55, pool: 4 },
+  hit: { file: 'hit.mp3', volume: 0.6, pool: 3 },
+  death: { file: 'death.mp3', volume: 0.6, pool: 2 },
+  build: { file: 'build.mp3', volume: 0.6, pool: 2 },
+  horn: { file: 'horn.mp3', volume: 0.7, pool: 1 },
+  victory: { file: 'victory.mp3', volume: 0.6, pool: 1 },
+  thud: { file: 'thud.mp3', volume: 0.6, pool: 2 },
+  gameover: { file: 'gameover.mp3', volume: 0.6, pool: 1 },
+  click: { file: 'click.mp3', volume: 0.5, pool: 2 },
+};
+
+const soundPools = {}; // name -> { elements: HTMLAudioElement[], next: 0 }
+let audioUnlocked = false;
+let musicEl = null;
+let muted = false;
+try {
+  muted = window.localStorage.getItem('castle-siege-muted') === '1';
+} catch (err) {
+  muted = false; // storage unavailable, mute still applies for this session
+}
+
+const soundBtn = document.getElementById('btn-sound');
+
+function updateSoundButton() {
+  if (!soundBtn) return;
+  soundBtn.textContent = muted ? 'Sound: Off' : 'Sound: On';
+}
+
+function unlockAudio() {
+  if (audioUnlocked) return;
+  audioUnlocked = true;
+  for (const [name, def] of Object.entries(SOUND_DEFS)) {
+    const elements = [];
+    for (let i = 0; i < def.pool; i++) {
+      const el = new Audio(AUDIO_BASE + def.file);
+      el.preload = 'auto';
+      el.volume = def.volume;
+      elements.push(el);
+    }
+    soundPools[name] = { elements, next: 0 };
+  }
+  musicEl = new Audio(AUDIO_BASE + 'music.mp3');
+  musicEl.preload = 'auto';
+  musicEl.loop = true;
+  musicEl.volume = 0.35;
+  if (!muted) {
+    musicEl.play().catch(() => {});
+  }
+  updateSoundButton();
+}
+
+function playSound(name) {
+  if (!audioUnlocked || muted) return;
+  const pool = soundPools[name];
+  if (!pool) return;
+  const el = pool.elements[pool.next];
+  pool.next = (pool.next + 1) % pool.elements.length;
+  el.currentTime = 0;
+  el.play().catch(() => {});
+}
+
+function toggleMute() {
+  muted = !muted;
+  try {
+    window.localStorage.setItem('castle-siege-muted', muted ? '1' : '0');
+  } catch (err) {
+    // storage unavailable, mute still applies for this session
+  }
+  if (musicEl) {
+    if (muted) musicEl.pause();
+    else musicEl.play().catch(() => {});
+  }
+  updateSoundButton();
+}
+
+soundBtn.addEventListener('click', () => {
+  unlockAudio();
+  toggleMute();
+});
+
+// A click on any HUD or game-over button plays the UI click sound.
+for (const id of ['hud', 'fallen-overlay']) {
+  document.getElementById(id).addEventListener('click', (e) => {
+    if (e.target.closest('button')) playSound('click');
+  });
+}
+
+// First interaction unlocks audio (autoplay rules): pointer or key.
+window.addEventListener('pointerdown', unlockAudio, { once: true });
+window.addEventListener('keydown', unlockAudio, { once: true });
+updateSoundButton();
+
+// ---------------------------------------------------------------------------
 // Game state
 // ---------------------------------------------------------------------------
 const state = {
@@ -598,6 +699,10 @@ for (const [kind, btn] of Object.entries(placeBtns)) {
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape' && state.placing) cancelPlacing();
+  if (e.key === 'm' || e.key === 'M') {
+    unlockAudio();
+    toggleMute();
+  }
 });
 
 function placeWallAt(x, z) {
@@ -670,6 +775,7 @@ function placeAt(kind, x, z) {
   else if (kind === 'house') placeHouseAt(x, z);
   else if (kind === 'farm') placeFarmAt(x, z);
   else if (kind === 'tower') placeTowerAt(x, z);
+  playSound('build');
   updateHUD();
   return true;
 }
@@ -718,6 +824,7 @@ waveBtn.addEventListener('click', () => {
   const count = 3 + (state.wave - 1) * 2;
   state.waveActive = true;
   spawnWave(count);
+  playSound('horn');
   setStatus('Wave ' + state.wave + ': ' + count + ' enemies approach');
 });
 
@@ -726,9 +833,12 @@ function damageKeep(amount) {
   updateHUD();
   if (state.keepHp <= 0) {
     state.waveActive = false;
+    playSound('gameover');
     fallenWaveEl.textContent = state.wave;
     fallenOverlay.classList.remove('hidden');
     setStatus('The castle has fallen');
+  } else {
+    playSound('thud');
   }
 }
 
@@ -748,6 +858,7 @@ function checkWaveEnd() {
     state.waveActive = false;
     state.gold += 20;
     updateHUD();
+    playSound('victory');
     setStatus('Wave ' + state.wave + ' cleared! +20 Gold');
   }
 }
@@ -763,6 +874,7 @@ function fireArrow(tower, target) {
   mesh.castShadow = false;
   scene.add(mesh);
   arrows.push({ mesh, target });
+  playSound('shoot');
 }
 
 function updateTowers(delta) {
@@ -809,6 +921,9 @@ function updateArrows(delta) {
       if (target.hp <= 0) {
         const idx = enemies.indexOf(target);
         if (idx >= 0) killEnemy(idx);
+        playSound('death');
+      } else {
+        playSound('hit');
       }
       continue;
     }
@@ -944,7 +1059,24 @@ function animate() {
 }
 
 // Small debug handle used by automated tests (harmless in normal play).
-window.__castle = { state, enemies, towers, arrows, incomePerTick };
+window.__castle = {
+  state,
+  enemies,
+  towers,
+  arrows,
+  incomePerTick,
+  audio: {
+    isUnlocked: () => audioUnlocked,
+    isMuted: () => muted,
+    musicPaused: () => (musicEl ? musicEl.paused : true),
+    poolSizes: () => Object.fromEntries(
+      Object.entries(soundPools).map(([k, v]) => [k, v.elements.length]),
+    ),
+    poolState: (name) => (soundPools[name] || { elements: [] }).elements.map(
+      (el) => ({ paused: el.paused, time: el.currentTime, src: el.currentSrc.split('/').pop() }),
+    ),
+  },
+};
 
 updateHUD();
 animate();
