@@ -167,7 +167,7 @@ const BUILD_RADIUS = 75;
 
 // Towers that shoot during waves: { pos: Vector3 (arrow origin), cooldown }
 const towers = [];
-// Enemies alive right now: { group, hp, speed, phase }
+// Enemies alive right now: { group, limbs, hp, speed, damage, reach, type, phase, target, attackTimer }
 const enemies = [];
 // Arrows in flight: { mesh, target }
 const arrows = [];
@@ -1914,6 +1914,141 @@ function createSoldier(variant) {
   return { group: g, limbs: { legL, legR, armL, armR } };
 }
 
+// Enemy types: foot soldiers (the original), cavalry (a rider on a
+// horse: fast and tough) and brutes (big armoured fighters: slow, very
+// tough, heavy hits). All three stop and attack buildings the same way;
+// only their numbers and looks differ. Damage is per swing (a soldier
+// swing is ENEMY_HIT_DAMAGE = 5); reach is extra stopping distance so
+// a bigger body does not clip into the building it attacks.
+const ENEMY_TYPES = {
+  soldier: { hp: 2, damage: ENEMY_HIT_DAMAGE, reach: 0 },
+  cavalry: { hp: 4, damage: 15, reach: 1.2 },
+  brute: { hp: 6, damage: 20, reach: 0.6 },
+};
+const CAVALRY_SPEED = 4.2; // vs foot soldiers at about 2.55
+const BRUTE_SPEED = 1.9;
+const BRUTE_SCALE = 1.35;
+
+const horseBodyMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
+const horseDarkMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1 });
+const riderTunicMat = new THREE.MeshStandardMaterial({ color: 0x5a1f1a, roughness: 0.9 });
+const bruteSteelMat = new THREE.MeshStandardMaterial({ color: 0x3a3a42, roughness: 0.45, metalness: 0.6 });
+const bruteTunicMat = new THREE.MeshStandardMaterial({ color: 0x2e2e33, roughness: 0.9 });
+const bruteHornMat = new THREE.MeshStandardMaterial({ color: 0xd8cdb8, roughness: 1 });
+
+function createCavalry() {
+  const g = new THREE.Group();
+  // Horse body, neck and head (faces +Z, like the soldiers).
+  box(0.85, 0.85, 2.1, horseBodyMat, 0, 1.5, 0, g);
+  const neck = new THREE.Group();
+  neck.position.set(0, 1.8, 0.85);
+  const neckMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.0, 0.5), horseBodyMat);
+  neckMesh.position.y = 0.4;
+  neckMesh.rotation.x = 0.5;
+  neckMesh.castShadow = true;
+  neck.add(neckMesh);
+  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.9), horseBodyMat);
+  head.position.set(0, 0.95, 0.45);
+  head.castShadow = true;
+  neck.add(head);
+  for (const side of [1, -1]) {
+    const ear = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.28, 0.08), horseDarkMat);
+    ear.position.set(side * 0.14, 1.15, 0.3);
+    neck.add(ear);
+  }
+  g.add(neck);
+  // Mane along the neck, tail at the back.
+  box(0.16, 0.9, 0.5, horseDarkMat, 0, 2.15, 0.55, g);
+  const tail = new THREE.Group();
+  tail.position.set(0, 1.75, -1.05);
+  const tailMesh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.9, 0.18), horseDarkMat);
+  tailMesh.position.y = -0.4;
+  tailMesh.rotation.x = 0.35;
+  tailMesh.castShadow = true;
+  tail.add(tailMesh);
+  g.add(tail);
+  // Legs: the front pair and the back pair swing together (gallop). The
+  // pivots are exposed as legL/legR so the walk and attack code works
+  // unchanged.
+  function horseLegs(z) {
+    const pivot = new THREE.Group();
+    pivot.position.set(0, 1.2, z);
+    for (const side of [1, -1]) {
+      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 0.2), horseDarkMat);
+      leg.position.set(side * 0.28, -0.6, 0);
+      leg.castShadow = true;
+      pivot.add(leg);
+    }
+    g.add(pivot);
+    return pivot;
+  }
+  const legL = horseLegs(0.75);
+  const legR = horseLegs(-0.75);
+  // Rider: torso, helmeted head, shield arm and lance arm, seated on the horse.
+  box(0.95, 0.9, 0.55, riderTunicMat, 0, 2.35, 0, g);
+  box(0.5, 0.5, 0.5, enemySkinMat, 0, 3.05, 0, g);
+  const helm = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.5, 8), enemyMetalMat);
+  helm.position.set(0, 3.5, 0);
+  helm.castShadow = true;
+  g.add(helm);
+  const armL = limbMesh(0.2, 0.7, 0.22, riderTunicMat, -0.55, 2.75);
+  const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.07, 14), enemyShieldMat);
+  shield.rotation.x = Math.PI / 2;
+  shield.position.set(0, -0.5, 0.22);
+  shield.castShadow = true;
+  armL.add(shield);
+  g.add(armL);
+  const armR = limbMesh(0.2, 0.7, 0.22, riderTunicMat, 0.55, 2.75);
+  // Lance: long shaft held forward, couched under the arm.
+  const lance = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.8, 6), woodMat);
+  lance.rotation.x = Math.PI / 2 - 0.25;
+  lance.position.set(0, -0.3, 0.6);
+  lance.castShadow = true;
+  armR.add(lance);
+  const lanceTip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.35, 6), enemyMetalMat);
+  lanceTip.rotation.x = Math.PI / 2 - 0.25;
+  lanceTip.position.set(0, -0.62, 1.85);
+  lanceTip.castShadow = true;
+  armR.add(lanceTip);
+  g.add(armR);
+  return { group: g, limbs: { legL, legR, armL, armR } };
+}
+
+function createBrute() {
+  // A bigger, armoured soldier: thicker limbs, dark plate, a horned
+  // helm and a heavy double-headed axe. Built the same way as a foot
+  // soldier, then scaled up, so the walk and attack code works unchanged.
+  const g = new THREE.Group();
+  const legL = limbMesh(0.34, 1.0, 0.38, bruteTunicMat, -0.26, 1.05);
+  const legR = limbMesh(0.34, 1.0, 0.38, bruteTunicMat, 0.26, 1.05);
+  g.add(legL, legR);
+  box(1.35, 1.1, 0.8, bruteSteelMat, 0, 1.6, 0, g); // plate torso
+  box(1.38, 0.14, 0.83, darkMat, 0, 1.1, 0, g); // belt
+  const armL = limbMesh(0.28, 0.9, 0.3, bruteSteelMat, -0.78, 2.05);
+  const shield = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.2, 0.1), bruteSteelMat);
+  shield.position.set(0, -0.6, 0.26);
+  shield.castShadow = true;
+  armL.add(shield);
+  g.add(armL);
+  const armR = limbMesh(0.28, 0.9, 0.3, bruteSteelMat, 0.78, 2.05);
+  // Double-headed axe: long shaft, two blades.
+  cylinder(0.06, 0.06, 2.4, woodMat, 0, -0.2, 0.1, armR, 6);
+  box(0.7, 0.5, 0.08, enemyMetalMat, 0, -1.2, 0.1, armR);
+  g.add(armR);
+  // Head with a horned helm.
+  box(0.62, 0.6, 0.62, enemySkinMat, 0, 2.45, 0, g);
+  cylinder(0.46, 0.46, 0.12, bruteSteelMat, 0, 2.78, 0, g, 12);
+  for (const side of [1, -1]) {
+    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.5, 6), bruteHornMat);
+    horn.position.set(side * 0.5, 2.85, 0);
+    horn.rotation.z = side * -0.9;
+    horn.castShadow = true;
+    g.add(horn);
+  }
+  g.scale.setScalar(BRUTE_SCALE);
+  return { group: g, limbs: { legL, legR, armL, armR } };
+}
+
 // The King: one royal figure standing by the keep, built the same
 // procedural way as the soldiers but clearly distinct: a long purple
 // robe (no visible legs), a crimson cape, a gold belt and collar, a
@@ -2009,22 +2144,39 @@ function orderKingMove(x, z) {
   setStatus('The King marches to ' + Math.round(x) + ', ' + Math.round(z));
 }
 
-function createEnemy(x, z, speed, variant = 0) {
-  const s = createSoldier(variant);
+function createEnemy(x, z, speed, variant = 0, type = 'soldier') {
+  const stats = ENEMY_TYPES[type] || ENEMY_TYPES.soldier;
+  const s = type === 'cavalry' ? createCavalry() : type === 'brute' ? createBrute() : createSoldier(variant);
   s.group.position.set(x, terrainHeight(x, z), z);
   scene.add(s.group);
-  enemies.push({ group: s.group, limbs: s.limbs, hp: 2, speed, phase: Math.random() * Math.PI * 2, target: null, attackTimer: 0 });
+  enemies.push({ group: s.group, limbs: s.limbs, hp: stats.hp, speed, damage: stats.damage, reach: stats.reach, type, phase: Math.random() * Math.PI * 2, target: null, attackTimer: 0 });
 }
 
 function spawnWave(count) {
+  // Wave 1 is foot soldiers only. From wave 2 cavalry ride in, from
+  // wave 3 brutes join them; the mix scales with the wave number.
+  const cavCount = state.wave >= 2 ? Math.min(state.wave - 1, 3) : 0;
+  const bruteCount = state.wave >= 3 ? Math.min(state.wave - 2, 2) : 0;
+  const types = [];
+  for (let i = 0; i < count - cavCount - bruteCount; i++) types.push('soldier');
+  for (let i = 0; i < cavCount; i++) types.push('cavalry');
+  for (let i = 0; i < bruteCount; i++) types.push('brute');
+  // Interleave the types so they do not arrive in one clump.
+  for (let i = types.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [types[i], types[j]] = [types[j], types[i]];
+  }
   for (let i = 0; i < count; i++) {
     const angle = (i / count) * Math.PI * 2 + Math.random() * 0.6;
     const r = 125 + Math.random() * 8; // new map edge
+    const type = types[i];
+    const speed = type === 'cavalry' ? CAVALRY_SPEED : type === 'brute' ? BRUTE_SPEED : Math.min(2.4 + state.wave * 0.15, 4);
     createEnemy(
       Math.cos(angle) * r,
       Math.sin(angle) * r,
-      Math.min(2.4 + state.wave * 0.15, 4),
+      speed,
       i % 3, // visual variant only, behaviour is identical
+      type,
     );
   }
 }
@@ -2191,15 +2343,16 @@ function wallHitPoint(px, pz, b) {
 
 // The building blocking an enemy at (px, pz): the nearest building the
 // enemy is close enough to attack. Walls are measured to their segment,
-// other buildings to their centre.
-function findBlocker(px, pz) {
+// other buildings to their centre. `reach` is the enemy's extra body
+// size (cavalry and brutes stop further out so they do not clip in).
+function findBlocker(px, pz, reach = 0) {
   let best = null;
   let bestD = Infinity;
   for (const b of built) {
     let d;
     if (b.kind === 'wall') d = distToWall(px, pz, b);
     else d = Math.hypot(px - b.x, pz - b.z);
-    const stop = b.kind === 'wall' ? WALL_STOP_DIST : BUILDING_STOP_DIST[b.kind];
+    const stop = (b.kind === 'wall' ? WALL_STOP_DIST : BUILDING_STOP_DIST[b.kind]) + reach;
     if (d <= stop && d < bestD) {
       bestD = d;
       best = b;
@@ -2280,7 +2433,7 @@ function updateEnemies(delta, elapsed) {
     }
     // No target yet: stop at the first building in the way, or at the keep.
     if (!e.target) {
-      const blocker = findBlocker(p.x, p.z);
+      const blocker = findBlocker(p.x, p.z, e.reach || 0);
       if (blocker) {
         e.target = blocker;
         e.attackTimer = 0.4; // first swing lands quickly
@@ -2313,7 +2466,7 @@ function updateEnemies(delta, elapsed) {
           const hx = p.x + (dx / d) * 6.5;
           const hz = p.z + (dz / d) * 6.5;
           burstSparks(hx, p.y + 2, hz);
-          damageKeep(ENEMY_HIT_DAMAGE);
+          damageKeep(e.damage || ENEMY_HIT_DAMAGE);
           if (state.keepHp > 0) {
             setStatus('An enemy is attacking the keep! Keep HP ' + state.keepHp);
           }
@@ -2330,7 +2483,7 @@ function updateEnemies(delta, elapsed) {
             hx = p.x + ((b.x - p.x) / bd) * 1.2;
             hz = p.z + ((b.z - p.z) / bd) * 1.2;
           }
-          damageBuilding(b, ENEMY_HIT_DAMAGE, hx, p.y + 1.6, hz);
+          damageBuilding(b, e.damage || ENEMY_HIT_DAMAGE, hx, p.y + 1.6, hz);
         }
       }
       continue;
