@@ -72,6 +72,20 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
   chimney smoke, enemy dust). Merlons are merged into one mesh per wall
   to keep draw calls low. No post-processing, so the game stays fast on
   weak hardware.
+- **Phase 6 (done):** Action buttons are icons (SVG brick wall, house,
+  wheat, tower, crossed swords, speaker) with the cost as a tiny label
+  under each icon. Save game and leaderboard are gone entirely: no save
+  button, no Continue overlay, no score submission, no leaderboard panel,
+  the `server/` directory is deleted, and the game always starts fresh.
+- **Phase 7 (done):** Bigger ground and proper soldier characters. The
+  terrain is 440 wide (about 1.8x the old 240), with hills, trees, rocks
+  and two more village houses spread across the new area, fog and camera
+  retuned so the whole map is viewable, and build placement works out to
+  100 units from the centre. Enemies spawn at the new map edge (about
+  125 units out) and are now proper low-poly humanoids: helmeted head,
+  tunic torso, swinging arms and legs with a walk animation, shield and
+  spear or sword, in three visual variants (red spearman, blue swordsman,
+  olive spearman) with identical behaviour, speed, health and ranges.
 
 ## Audio credits
 

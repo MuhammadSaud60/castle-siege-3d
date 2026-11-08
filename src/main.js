@@ -2,7 +2,9 @@
 // gradient sky with sun and clouds, detailed models, particles. Phases 1-3:
 // 3D scene, economy and waves, sounds and music. (Phase 4 save game and
 // leaderboard were removed at Saud's request; the game always starts fresh
-// and has no score submission.)
+// and has no score submission.) Phase 6: action buttons are icons, no save
+// or leaderboard. Phase 7: bigger ground (440) and proper low-poly soldier
+// characters with a walk animation.
 // A Stronghold-style castle builder scene: procedural low-poly geometry only,
 // no external models, images or audio. Three.js + OrbitControls, bundled by Vite.
 
@@ -175,22 +177,22 @@ container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
 scene.background = new THREE.Color(0x87bfe8); // replaced by the gradient sky texture below
-scene.fog = new THREE.Fog(0xd3e2ee, 100, 260);
+scene.fog = new THREE.Fog(0xd3e2ee, 150, 480);
 
 const camera = new THREE.PerspectiveCamera(
   55,
   window.innerWidth / window.innerHeight,
   0.1,
-  600,
+  1000,
 );
-camera.position.set(44, 34, 44);
+camera.position.set(56, 42, 56);
 
 const controls = new OrbitControls(camera, renderer.domElement);
 controls.target.set(0, 2, 0);
 controls.enableDamping = true;
 controls.dampingFactor = 0.08;
 controls.minDistance = 14;
-controls.maxDistance = 130;
+controls.maxDistance = 220;
 controls.maxPolarAngle = Math.PI / 2 - 0.04; // never go under the ground
 
 // ---------------------------------------------------------------------------
@@ -384,7 +386,7 @@ function softCanvas() {
 
 const stoneTex = canvasTexture(stoneCanvas(154), 2, 1);
 const stoneDarkTex = canvasTexture(stoneCanvas(120), 1, 1);
-const grassTex = canvasTexture(grassCanvas(), 26, 26);
+const grassTex = canvasTexture(grassCanvas(), 48, 48);
 const woodTex = canvasTexture(woodCanvas(), 1, 1);
 const roofTex = canvasTexture(roofCanvas(), 2, 2);
 const dirtTex = canvasTexture(dirtCanvas(), 1, 5);
@@ -430,8 +432,8 @@ for (let i = 0; i < 6; i++) {
     map: softTex, color: 0xffffff, fog: false, depthWrite: false, transparent: true, opacity: 0.75,
   }));
   const a = (i / 6) * Math.PI * 2 + 0.4;
-  const r = 90 + (i % 3) * 45;
-  cloud.position.set(Math.cos(a) * r, 62 + (i % 3) * 14, Math.sin(a) * r);
+  const r = 130 + (i % 3) * 60;
+  cloud.position.set(Math.cos(a) * r, 70 + (i % 3) * 16, Math.sin(a) * r);
   const cs = 42 + (i % 3) * 16;
   cloud.scale.set(cs, cs * 0.42, 1);
   cloud.userData.drift = 0.4 + (i % 3) * 0.25;
@@ -462,8 +464,8 @@ scene.add(sun);
 // ---------------------------------------------------------------------------
 function terrainHeight(x, z) {
   const d = Math.hypot(x, z);
-  if (d < 30) return 0; // flat castle ground
-  const t = Math.min((d - 30) / 40, 1); // fade the hills in
+  if (d < 40) return 0; // flat castle ground
+  const t = Math.min((d - 40) / 60, 1); // fade the hills in
   return (
     t *
     (Math.sin(x * 0.08) * Math.cos(z * 0.06) * 1.4 +
@@ -471,7 +473,10 @@ function terrainHeight(x, z) {
   );
 }
 
-const groundGeo = new THREE.PlaneGeometry(240, 240, 72, 72);
+// Ground is 440 wide (about 1.8x the old 240), so the map feels much
+// bigger while the castle stays centred on flat ground in the middle.
+const GROUND_SIZE = 440;
+const groundGeo = new THREE.PlaneGeometry(GROUND_SIZE, GROUND_SIZE, 128, 128);
 groundGeo.rotateX(-Math.PI / 2);
 {
   const pos = groundGeo.attributes.position;
@@ -488,7 +493,7 @@ ground.receiveShadow = true;
 scene.add(ground);
 
 // Faint grid over the flat castle area, for a building-game feel.
-const grid = new THREE.GridHelper(60, 30, 0x35592f, 0x35592f);
+const grid = new THREE.GridHelper(80, 40, 0x35592f, 0x35592f);
 grid.material.transparent = true;
 grid.material.opacity = 0.1;
 grid.position.y = 0.04;
@@ -846,10 +851,15 @@ house(28, -22, 2);
 house(36, 8, 3);
 house(26, 32, 4);
 house(-28, 28, 5);
+house(62, -40, 6);
+house(-64, 48, 7);
 
 const treeSpots = [
   [-42, -8], [-46, 14], [-38, -34], [42, -30], [48, -6],
   [44, 26], [-44, 34], [14, -42], [-12, 46], [58, 12],
+  [78, -44], [96, 20], [-84, -62], [120, -78], [-110, 30],
+  [140, 44], [-140, -40], [88, 96], [-96, 110], [150, -110],
+  [-160, 90], [60, -120], [-70, -130], [130, 120],
 ];
 
 function tree(x, z, s, i) {
@@ -893,6 +903,8 @@ treeSpots.forEach(([x, z], i) => tree(x, z, 0.85 + (i % 4) * 0.15, i));
 
 const rockSpots = [
   [-52, -22, 1.4], [52, 34, 1.1], [-8, -52, 1.7], [20, 52, 1.2], [-58, 2, 1.0],
+  [120, 60, 1.5], [-130, -90, 1.8], [90, -140, 1.3], [-70, 150, 1.6],
+  [170, -30, 1.2], [-160, 140, 1.4],
 ];
 
 function rock(x, z, r) {
@@ -1141,7 +1153,7 @@ function placeTowerAt(x, z) {
 }
 
 function placeAt(kind, x, z) {
-  if (Math.abs(x) > 55 || Math.abs(z) > 55) {
+  if (Math.abs(x) > 100 || Math.abs(z) > 100) {
     setStatus('Too far out, build closer to the castle');
     return false;
   }
@@ -1268,30 +1280,122 @@ function updateParticles(delta) {
 // ---------------------------------------------------------------------------
 const waveBtn = document.getElementById('btn-next-wave');
 
-const enemyBodyMat = new THREE.MeshStandardMaterial({ color: 0x8a2a22, roughness: 0.9 });
-const enemyHeadMat = new THREE.MeshStandardMaterial({ color: 0x5c1d16, roughness: 0.9 });
+// Proper low-poly soldiers (Phase 7): helmeted head, tunic torso, swinging
+// arms and legs, shield and spear or sword. Three visual variants with
+// IDENTICAL behaviour and hitboxes: same speed, same hp, same ranges.
 const enemySkinMat = new THREE.MeshStandardMaterial({ color: 0xd9b48a, roughness: 0.9 });
+const enemyLegMat = new THREE.MeshStandardMaterial({ color: 0x4a3421, roughness: 1 });
+const enemyMetalMat = new THREE.MeshStandardMaterial({ color: 0x9a9a92, roughness: 0.5, metalness: 0.4 });
+const enemyShieldMat = new THREE.MeshStandardMaterial({ color: 0x8a6134, roughness: 0.9 });
+const enemyTunicMats = [
+  new THREE.MeshStandardMaterial({ color: 0x8a2a22, roughness: 0.9 }), // red spearman
+  new THREE.MeshStandardMaterial({ color: 0x2e4a6e, roughness: 0.9 }), // blue swordsman
+  new THREE.MeshStandardMaterial({ color: 0x5a6e2e, roughness: 0.9 }), // olive spearman
+];
 
-function createEnemy(x, z, speed) {
+// A limb group pivoted at its top joint; the mesh hangs below the pivot
+// so rotating the group swings the limb while walking.
+function limbMesh(w, h, d, mat, px, py) {
+  const pivot = new THREE.Group();
+  pivot.position.set(px, py, 0);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), mat);
+  m.position.y = -h / 2;
+  m.castShadow = true;
+  m.receiveShadow = true;
+  pivot.add(m);
+  return pivot;
+}
+
+function createSoldier(variant) {
+  const v = variant % 3;
+  const tunic = enemyTunicMats[v];
   const g = new THREE.Group();
-  const y = terrainHeight(x, z);
-  box(1.1, 1.5, 0.7, enemyBodyMat, 0, 1.05, 0, g);
-  box(0.65, 0.6, 0.65, enemySkinMat, 0, 2.1, 0, g);
-  box(0.7, 0.25, 0.7, enemyHeadMat, 0, 2.45, 0, g); // helmet
-  box(0.12, 2.2, 0.12, darkMat, 0.7, 1.1, 0, g); // spear
-  g.position.set(x, y, z);
-  scene.add(g);
-  enemies.push({ group: g, hp: 2, speed, phase: Math.random() * Math.PI * 2 });
+  // Legs (swing from the hip while walking).
+  const legL = limbMesh(0.26, 0.9, 0.3, enemyLegMat, -0.22, 0.95);
+  const legR = limbMesh(0.26, 0.9, 0.3, enemyLegMat, 0.22, 0.95);
+  g.add(legL, legR);
+  // Torso with tunic and belt.
+  box(1.05, 1.0, 0.62, tunic, 0, 1.45, 0, g);
+  box(1.08, 0.12, 0.65, darkMat, 0, 1.0, 0, g);
+  // Left arm, carrying the shield on the forearm.
+  const armL = limbMesh(0.22, 0.8, 0.24, tunic, -0.63, 1.88);
+  if (v === 1) {
+    // Kite shield: tall board.
+    const shield = new THREE.Mesh(new THREE.BoxGeometry(0.72, 1.0, 0.08), enemyShieldMat);
+    shield.position.set(0, -0.55, 0.24);
+    shield.castShadow = true;
+    armL.add(shield);
+  } else {
+    // Round shield with a metal boss.
+    const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.08, 14), enemyShieldMat);
+    shield.rotation.x = Math.PI / 2;
+    shield.position.set(0, -0.55, 0.24);
+    shield.castShadow = true;
+    armL.add(shield);
+    const boss = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), enemyMetalMat);
+    boss.position.set(0, -0.55, 0.32);
+    armL.add(boss);
+  }
+  g.add(armL);
+  // Right arm, carrying the weapon.
+  const armR = limbMesh(0.22, 0.8, 0.24, tunic, 0.63, 1.88);
+  if (v === 1) {
+    // Sword: blade, guard and grip, held down at the side.
+    box(0.12, 1.05, 0.05, enemyMetalMat, 0, -0.35, 0.08, armR);
+    box(0.38, 0.08, 0.1, darkMat, 0, 0.22, 0.08, armR);
+    cylinder(0.05, 0.05, 0.25, darkMat, 0, 0.35, 0.08, armR, 6);
+  } else {
+    // Spear: long shaft with a metal tip, held upright.
+    cylinder(0.05, 0.05, 2.6, woodMat, 0, 0.35, 0.1, armR, 6);
+    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.35, 6), enemyMetalMat);
+    tip.position.set(0, 1.8, 0.1);
+    tip.castShadow = true;
+    armR.add(tip);
+  }
+  g.add(armR);
+  // Head with skin, plus a helmet that differs per variant.
+  box(0.55, 0.55, 0.55, enemySkinMat, 0, 2.22, 0, g);
+  if (v === 0) {
+    // Pointed kettle helm with a brim.
+    const helm = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.55, 8), enemyMetalMat);
+    helm.position.set(0, 2.72, 0);
+    helm.castShadow = true;
+    g.add(helm);
+    cylinder(0.44, 0.44, 0.06, enemyMetalMat, 0, 2.5, 0, g, 12);
+  } else if (v === 1) {
+    // Dome helm with a brim.
+    const helm = new THREE.Mesh(
+      new THREE.SphereGeometry(0.34, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
+      enemyMetalMat,
+    );
+    helm.position.set(0, 2.5, 0);
+    helm.castShadow = true;
+    g.add(helm);
+    cylinder(0.4, 0.4, 0.06, enemyMetalMat, 0, 2.5, 0, g, 12);
+  } else {
+    // Nasal helm: flat cap with a nose guard strip.
+    box(0.6, 0.16, 0.6, enemyMetalMat, 0, 2.52, 0, g);
+    box(0.08, 0.38, 0.06, enemyMetalMat, 0, 2.32, 0.29, g);
+  }
+  return { group: g, limbs: { legL, legR, armL, armR } };
+}
+
+function createEnemy(x, z, speed, variant = 0) {
+  const s = createSoldier(variant);
+  s.group.position.set(x, terrainHeight(x, z), z);
+  scene.add(s.group);
+  enemies.push({ group: s.group, limbs: s.limbs, hp: 2, speed, phase: Math.random() * Math.PI * 2 });
 }
 
 function spawnWave(count) {
   for (let i = 0; i < count; i++) {
     const angle = (i / count) * Math.PI * 2 + Math.random() * 0.6;
-    const r = 66 + Math.random() * 6;
+    const r = 125 + Math.random() * 8; // new map edge
     createEnemy(
       Math.cos(angle) * r,
       Math.sin(angle) * r,
       Math.min(2.4 + state.wave * 0.15, 4),
+      i % 3, // visual variant only, behaviour is identical
     );
   }
 }
@@ -1450,6 +1554,14 @@ function updateEnemies(delta, elapsed) {
     p.z += (dz / d) * step;
     p.y = terrainHeight(p.x, p.z) + Math.abs(Math.sin(elapsed * 6 + e.phase)) * 0.12;
     e.group.rotation.y = Math.atan2(dx, dz);
+    // Walk cycle: legs and arms swing, body bobs (the bob is in p.y above).
+    const swing = Math.sin(elapsed * 6 + e.phase);
+    if (e.limbs) {
+      e.limbs.legL.rotation.x = swing * 0.55;
+      e.limbs.legR.rotation.x = -swing * 0.55;
+      e.limbs.armL.rotation.x = -swing * 0.4;
+      e.limbs.armR.rotation.x = swing * 0.3;
+    }
     // Dust puffs at the enemy's feet while it marches.
     e.dust = (e.dust || 0) + delta;
     if (e.dust > 0.4) {
@@ -1560,7 +1672,7 @@ function animate() {
   // Clouds drift across the sky.
   for (const cloud of clouds) {
     cloud.position.x += cloud.userData.drift * delta;
-    if (cloud.position.x > 170) cloud.position.x = -170;
+    if (cloud.position.x > 280) cloud.position.x = -280;
   }
   // Banners sway gently.
   for (let i = 0; i < banners.length; i++) {
@@ -1606,6 +1718,9 @@ window.__castle = {
   towers,
   arrows,
   built,
+  camera,
+  controls,
+  groundSize: () => GROUND_SIZE,
   incomePerTick,
   audio: {
     isUnlocked: () => audioUnlocked,
