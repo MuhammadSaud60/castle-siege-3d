@@ -172,7 +172,27 @@ const enemies = [];
 // Arrows in flight: { mesh, target }
 const arrows = [];
 // Buildings the player placed: { kind: 'wall' | 'house' | 'farm' | 'tower', x, z }
+// (walls also carry angle; every building carries hp / maxHp). The entries
+// stay plain data so the debug handle can serialise them; the THREE.Group
+// for each building lives in buildingGroups, keyed by the entry.
 const built = [];
+const buildingGroups = new Map();
+
+// Building hit points, and what one enemy swing deals. A swing lands
+// every ENEMY_ATTACK_INTERVAL seconds: a wall (50 HP) holds for 10
+// swings, a house (30) for 6, a farm (20) for 4, a stone tower (60) for
+// 12. The keep takes the same 5 per swing (it used to take a single
+// 10-damage strike and the enemy vanished). One enemy needs 20 swings
+// to bring the keep down, so a lone attacker is a slow threat, but a
+// group attacking together can still overwhelm an undefended keep.
+const BUILDING_HP = { wall: 50, house: 30, farm: 20, tower: 60 };
+const ENEMY_HIT_DAMAGE = 5;
+const ENEMY_ATTACK_INTERVAL = 1.0;
+// How close an enemy must get to a building before it stops and starts
+// attacking it (building half-extent plus the soldier's body).
+const BUILDING_STOP_DIST = { house: 3.0, farm: 3.8, tower: 2.8 };
+const WALL_STOP_DIST = 1.4; // wall half-thickness 0.6 + soldier body
+const KEEP_STOP_DIST = 12; // courtyard edge, as before
 
 // ---------------------------------------------------------------------------
 // Renderer / scene / camera
@@ -1562,17 +1582,21 @@ function placeWallAt(x, z) {
   g.rotation.y = angle;
   scene.add(g);
   makeSelectable(g, 'Wall Segment');
-  built.push({ kind: 'wall', x: gx, z: gz, angle });
+  const rec = { kind: 'wall', x: gx, z: gz, angle, hp: BUILDING_HP.wall, maxHp: BUILDING_HP.wall };
+  built.push(rec);
+  buildingGroups.set(rec, g);
   setStatus('Wall built at ' + gx + ', ' + gz);
 }
 
 function placeHouseAt(x, z) {
   const gx = Math.round(x / 2) * 2;
   const gz = Math.round(z / 2) * 2;
-  house(gx, gz, houseColorIdx++);
+  const g = house(gx, gz, houseColorIdx++);
   state.houseCount += 1;
   state.popCap += 4;
-  built.push({ kind: 'house', x: gx, z: gz });
+  const rec = { kind: 'house', x: gx, z: gz, hp: BUILDING_HP.house, maxHp: BUILDING_HP.house };
+  built.push(rec);
+  buildingGroups.set(rec, g);
   setStatus('House built at ' + gx + ', ' + gz + '. Population cap is now ' + state.popCap);
 }
 
@@ -1590,7 +1614,9 @@ function placeFarmAt(x, z) {
   scene.add(g);
   makeSelectable(g, 'Farm');
   state.farmCount += 1;
-  built.push({ kind: 'farm', x: gx, z: gz });
+  const rec = { kind: 'farm', x: gx, z: gz, hp: BUILDING_HP.farm, maxHp: BUILDING_HP.farm };
+  built.push(rec);
+  buildingGroups.set(rec, g);
   setStatus('Farm built at ' + gx + ', ' + gz + '. Food income is now +' + (2 + state.farmCount * 2) + ' per tick');
 }
 
@@ -1608,7 +1634,9 @@ function placeTowerAt(x, z) {
   scene.add(g);
   makeSelectable(g, 'Tower');
   towers.push({ pos: new THREE.Vector3(gx, gy + 6.5, gz), cooldown: 0 });
-  built.push({ kind: 'tower', x: gx, z: gz });
+  const rec = { kind: 'tower', x: gx, z: gz, hp: BUILDING_HP.tower, maxHp: BUILDING_HP.tower };
+  built.push(rec);
+  buildingGroups.set(rec, g);
   setStatus('Tower built at ' + gx + ', ' + gz);
 }
 
@@ -1948,7 +1976,7 @@ function createEnemy(x, z, speed, variant = 0) {
   const s = createSoldier(variant);
   s.group.position.set(x, terrainHeight(x, z), z);
   scene.add(s.group);
-  enemies.push({ group: s.group, limbs: s.limbs, hp: 2, speed, phase: Math.random() * Math.PI * 2 });
+  enemies.push({ group: s.group, limbs: s.limbs, hp: 2, speed, phase: Math.random() * Math.PI * 2, target: null, attackTimer: 0 });
 }
 
 function spawnWave(count) {
@@ -2095,7 +2123,110 @@ function updateArrows(delta) {
 }
 
 // ---------------------------------------------------------------------------
-// Enemy movement: walk toward the keep, strike it on arrival
+// Siege combat: enemies stop at buildings and attack them (Stronghold-style)
+// instead of vanishing into them.
+// ---------------------------------------------------------------------------
+
+// Distance from (px, pz) to the wall segment of building b. The wall is 4
+// long, centred at (b.x, b.z), rotated by b.angle around Y: its local X
+// axis maps to world (cos a, -sin a).
+function distToWall(px, pz, b) {
+  const dx = Math.cos(b.angle);
+  const dz = -Math.sin(b.angle);
+  const rx = px - b.x;
+  const rz = pz - b.z;
+  const t = Math.max(-2, Math.min(2, rx * dx + rz * dz));
+  const cx = b.x + dx * t;
+  const cz = b.z + dz * t;
+  return Math.hypot(px - cx, pz - cz);
+}
+
+// The closest point on the wall segment to (px, pz): where the enemy's
+// weapon lands.
+function wallHitPoint(px, pz, b) {
+  const dx = Math.cos(b.angle);
+  const dz = -Math.sin(b.angle);
+  const rx = px - b.x;
+  const rz = pz - b.z;
+  const t = Math.max(-2, Math.min(2, rx * dx + rz * dz));
+  return { x: b.x + dx * t, z: b.z + dz * t };
+}
+
+// The building blocking an enemy at (px, pz): the nearest building the
+// enemy is close enough to attack. Walls are measured to their segment,
+// other buildings to their centre.
+function findBlocker(px, pz) {
+  let best = null;
+  let bestD = Infinity;
+  for (const b of built) {
+    let d;
+    if (b.kind === 'wall') d = distToWall(px, pz, b);
+    else d = Math.hypot(px - b.x, pz - b.z);
+    const stop = b.kind === 'wall' ? WALL_STOP_DIST : BUILDING_STOP_DIST[b.kind];
+    if (d <= stop && d < bestD) {
+      bestD = d;
+      best = b;
+    }
+  }
+  return best;
+}
+
+// Deal one swing of damage to a building. Returns true if the building
+// was destroyed by this hit.
+function damageBuilding(b, amount, hitX, hitY, hitZ) {
+  b.hp -= amount;
+  burstSparks(hitX, hitY, hitZ);
+  playSound('thud');
+  if (b.hp > 0) {
+    setStatus('An enemy is attacking your ' + b.kind + '! ' + b.kind + ' HP ' + b.hp + '/' + b.maxHp);
+    return false;
+  }
+  destroyBuilding(b);
+  return true;
+}
+
+function destroyBuilding(b) {
+  const g = buildingGroups.get(b);
+  if (g) {
+    scene.remove(g);
+    const si = selectables.indexOf(g);
+    if (si >= 0) selectables.splice(si, 1);
+    if (selected === g) deselect();
+    buildingGroups.delete(b);
+  }
+  const bi = built.indexOf(b);
+  if (bi >= 0) built.splice(bi, 1);
+  if (b.kind === 'house') {
+    state.houseCount = Math.max(0, state.houseCount - 1);
+    state.popCap = Math.max(0, state.popCap - 4);
+    // The house's chimney no longer smokes.
+    const ci = chimneys.findIndex((c) => c.x === b.x + 1.4 && c.z === b.z - 1);
+    if (ci >= 0) chimneys.splice(ci, 1);
+  } else if (b.kind === 'farm') {
+    state.farmCount = Math.max(0, state.farmCount - 1);
+  } else if (b.kind === 'tower') {
+    // A destroyed tower stops shooting.
+    const ti = towers.findIndex((t) => t.pos.x === b.x && t.pos.z === b.z);
+    if (ti >= 0) towers.splice(ti, 1);
+  }
+  // Rubble burst where the building stood.
+  const gy = terrainHeight(b.x, b.z);
+  burstSparks(b.x, gy + 2, b.z);
+  for (let i = 0; i < 10; i++) {
+    spawnParticle({
+      x: b.x + (Math.random() - 0.5) * 3, y: gy + 1 + Math.random() * 2, z: b.z + (Math.random() - 0.5) * 3,
+      vx: (Math.random() - 0.5) * 1.5, vy: 1 + Math.random() * 2, vz: (Math.random() - 0.5) * 1.5,
+      life: 1.1, size: 1.1, r: 0.62, g: 0.55, b: 0.42, grow: 1.6, peak: 0.3,
+    });
+  }
+  playSound('thud');
+  updateHUD();
+  setStatus('Your ' + b.kind + ' was destroyed!');
+}
+
+// ---------------------------------------------------------------------------
+// Enemy movement: walk toward the keep, stop at any building in the way
+// and attack it visibly, then move on once it is destroyed
 // ---------------------------------------------------------------------------
 function updateEnemies(delta, elapsed) {
   if (state.keepHp <= 0) return;
@@ -2105,14 +2236,69 @@ function updateEnemies(delta, elapsed) {
     const dx = -p.x;
     const dz = -p.z;
     const d = Math.hypot(dx, dz);
-    if (d < 12) {
-      damageKeep(10);
-      removeEnemy(i);
-      if (state.keepHp > 0) {
-        setStatus('An enemy struck the keep! Keep HP ' + state.keepHp);
+
+    // A destroyed building no longer blocks: drop the target and move on.
+    if (e.target && e.target !== 'keep' && !built.includes(e.target)) {
+      e.target = null;
+    }
+    // No target yet: stop at the first building in the way, or at the keep.
+    if (!e.target) {
+      const blocker = findBlocker(p.x, p.z);
+      if (blocker) {
+        e.target = blocker;
+        e.attackTimer = 0.4; // first swing lands quickly
+      } else if (d < KEEP_STOP_DIST) {
+        e.target = 'keep';
+        e.attackTimer = 0.4;
+      }
+    }
+
+    if (e.target) {
+      // Attacking: face the target, stand still, swing the weapon arm.
+      // The chop lands exactly when the timer runs out.
+      const tx = e.target === 'keep' ? 0 : e.target.x;
+      const tz = e.target === 'keep' ? 0 : e.target.z;
+      e.group.rotation.y = Math.atan2(tx - p.x, tz - p.z);
+      p.y = terrainHeight(p.x, p.z);
+      e.attackTimer -= delta;
+      const progress = 1 - Math.max(0, e.attackTimer) / ENEMY_ATTACK_INTERVAL;
+      const chop = Math.sin(Math.min(1, progress) * Math.PI);
+      if (e.limbs) {
+        e.limbs.legL.rotation.x = 0.15;
+        e.limbs.legR.rotation.x = -0.15;
+        e.limbs.armL.rotation.x = -0.3;
+        e.limbs.armR.rotation.x = -1.7 * chop;
+      }
+      if (e.attackTimer <= 0) {
+        e.attackTimer = ENEMY_ATTACK_INTERVAL;
+        if (e.target === 'keep') {
+          // Strike the keep face: sparks at the plinth, in front of the enemy.
+          const hx = p.x + (dx / d) * 6.5;
+          const hz = p.z + (dz / d) * 6.5;
+          burstSparks(hx, p.y + 2, hz);
+          damageKeep(ENEMY_HIT_DAMAGE);
+          if (state.keepHp > 0) {
+            setStatus('An enemy is attacking the keep! Keep HP ' + state.keepHp);
+          }
+        } else {
+          const b = e.target;
+          let hx;
+          let hz;
+          if (b.kind === 'wall') {
+            const hp = wallHitPoint(p.x, p.z, b);
+            hx = hp.x;
+            hz = hp.z;
+          } else {
+            const bd = Math.hypot(b.x - p.x, b.z - p.z);
+            hx = p.x + ((b.x - p.x) / bd) * 1.2;
+            hz = p.z + ((b.z - p.z) / bd) * 1.2;
+          }
+          damageBuilding(b, ENEMY_HIT_DAMAGE, hx, p.y + 1.6, hz);
+        }
       }
       continue;
     }
+
     const step = e.speed * delta;
     p.x += (dx / d) * step;
     p.z += (dz / d) * step;
