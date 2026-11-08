@@ -74,8 +74,10 @@ body {
   bottom: 14px;
   left: 14px;
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
+  max-width: 640px;
 }
 
 #actions button {
@@ -105,10 +107,86 @@ body {
   color: #d8cfae;
 }
 
+/* Keep HP bar in the resources panel */
+.hp-wrap {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+#hp-bar {
+  display: inline-block;
+  width: 90px;
+  height: 10px;
+  background: rgba(0, 0, 0, 0.55);
+  border: 1px solid rgba(243, 234, 210, 0.4);
+  border-radius: 5px;
+  overflow: hidden;
+  vertical-align: middle;
+}
+
+#hp-fill {
+  display: block;
+  height: 100%;
+  width: 100%;
+  background: #58b368;
+}
+
+/* Game over overlay */
+#fallen-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 6, 0.72);
+}
+
+#fallen-overlay.hidden {
+  display: none;
+}
+
+.fallen-box {
+  text-align: center;
+  background: rgba(20, 26, 20, 0.92);
+  color: #f3ead2;
+  border: 1px solid rgba(243, 234, 210, 0.4);
+  border-radius: 10px;
+  padding: 28px 40px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.fallen-box h2 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  color: #ff6b5e;
+}
+
+.fallen-box p {
+  margin: 0 0 18px;
+  font-size: 15px;
+}
+
+.fallen-box button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: bold;
+  color: #1c2416;
+  background: #ffd34d;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 22px;
+}
+
+.fallen-box button:hover {
+  background: #ffdf7a;
+}
+
 #hint {
   bottom: 14px;
-  left: 50%;
-  transform: translateX(-50%);
+  right: 14px;
   font-size: 13px;
   color: #e8e0c4;
   white-space: nowrap;

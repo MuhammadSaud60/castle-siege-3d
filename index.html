@@ -20,17 +20,31 @@
         <span>Stone <b id="res-stone">80</b></span>
         <span>Gold <b id="res-gold">50</b></span>
         <span>Food <b id="res-food">60</b></span>
-        <span>Population <b id="pop-count">12</b></span>
+        <span>Population <b id="pop-count">12 / 16</b></span>
+        <span class="hp-wrap">Keep HP <b id="keep-hp">100</b>
+          <span id="hp-bar"><span id="hp-fill"></span></span>
+        </span>
       </div>
 
       <div class="panel" id="actions">
         <button id="btn-build-wall">Build Wall (10 Stone)</button>
+        <button id="btn-build-house">Build House (20 Wood)</button>
+        <button id="btn-build-farm">Build Farm (15 Wood)</button>
+        <button id="btn-build-tower">Build Tower (30 Stone, 10 Wood)</button>
         <button id="btn-next-wave">Next Wave</button>
         <p id="wave-status">Wave 0, no enemies yet</p>
       </div>
 
       <div class="panel" id="hint">
         Drag to orbit, scroll to zoom, click a building to select it
+      </div>
+    </div>
+
+    <div id="fallen-overlay" class="hidden">
+      <div class="fallen-box">
+        <h2>Castle has fallen</h2>
+        <p>The keep was destroyed on wave <span id="fallen-wave">1</span>.</p>
+        <button id="btn-restart">Restart</button>
       </div>
     </div>
 

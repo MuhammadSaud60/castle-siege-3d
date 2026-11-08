@@ -1,4 +1,4 @@
-// Castle Siege 3D - Phase 1
+// Castle Siege 3D - Phase 2: economy + enemy waves
 // A Stronghold-style castle builder scene: procedural low-poly geometry only,
 // no external models, images or audio. Three.js + OrbitControls, bundled by Vite.
 
@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 
 // ---------------------------------------------------------------------------
-// Game state (Phase 1: display only, except Build Wall which spends stone)
+// Game state
 // ---------------------------------------------------------------------------
 const state = {
   wood: 100,
@@ -14,11 +14,33 @@ const state = {
   gold: 50,
   food: 60,
   population: 12,
+  popCap: 16,
   wave: 0,
-  placingWall: false,
+  waveActive: false,
+  keepHp: 100,
+  keepMaxHp: 100,
+  houseCount: 0, // houses built by the player (Phase 1 village houses are scenery)
+  farmCount: 0,
+  placing: null, // null or one of 'wall' | 'house' | 'farm' | 'tower'
 };
 
-const WALL_COST_STONE = 10;
+const COSTS = {
+  wall: { stone: 10 },
+  house: { wood: 20 },
+  farm: { wood: 15 },
+  tower: { stone: 30, wood: 10 },
+};
+
+const TOWER_RANGE = 26;
+const TOWER_FIRE_INTERVAL = 0.8;
+const ARROW_SPEED = 32;
+
+// Towers that shoot during waves: { pos: Vector3 (arrow origin), cooldown }
+const towers = [];
+// Enemies alive right now: { group, hp, speed, phase }
+const enemies = [];
+// Arrows in flight: { mesh, target }
+const arrows = [];
 
 // ---------------------------------------------------------------------------
 // Renderer / scene / camera
@@ -316,7 +338,8 @@ box(5.6, 4.6, 0.3, new THREE.MeshStandardMaterial({ color: 0x6e4a22, roughness: 
 scene.add(gate);
 makeSelectable(gate, 'Gatehouse');
 
-// Corner towers: cylinders with a cap ring and merlons.
+// Corner towers: cylinders with a cap ring and merlons. They shoot arrows
+// during waves, so each one registers in the towers list.
 function cornerTower(x, z) {
   const g = new THREE.Group();
   cylinder(2.4, 2.6, 7.5, stoneMat, x, 3.75, z, g, 18);
@@ -327,6 +350,7 @@ function cornerTower(x, z) {
   }
   scene.add(g);
   makeSelectable(g, 'Corner Tower');
+  towers.push({ pos: new THREE.Vector3(x, 8, z), cooldown: 0 });
   return g;
 }
 cornerTower(-HALF, -HALF);
@@ -339,6 +363,7 @@ cornerTower(HALF, HALF);
 // ---------------------------------------------------------------------------
 const houseColors = [0xd9a066, 0xc98f5f, 0xe0b070, 0xb98a5a, 0xdba47a, 0xcf9a68];
 const roofColors = [0x8a4b2d, 0x7a3b22, 0x96482a, 0x6e3a24, 0x8a4026, 0x7d3f28];
+let houseColorIdx = 6; // Phase 1 village used indices 0-5
 
 function house(x, z, i) {
   const g = new THREE.Group();
@@ -423,64 +448,410 @@ const resEls = {
   gold: document.getElementById('res-gold'),
   food: document.getElementById('res-food'),
   population: document.getElementById('pop-count'),
+  keepHp: document.getElementById('keep-hp'),
+  hpFill: document.getElementById('hp-fill'),
 };
 const waveStatusEl = document.getElementById('wave-status');
-const buildBtn = document.getElementById('btn-build-wall');
-const waveBtn = document.getElementById('btn-next-wave');
+const fallenOverlay = document.getElementById('fallen-overlay');
+const fallenWaveEl = document.getElementById('fallen-wave');
+
+function setStatus(text) {
+  waveStatusEl.textContent = text;
+}
 
 function updateHUD() {
   resEls.wood.textContent = state.wood;
   resEls.stone.textContent = state.stone;
   resEls.gold.textContent = state.gold;
   resEls.food.textContent = state.food;
-  resEls.population.textContent = state.population;
+  resEls.population.textContent = state.population + ' / ' + state.popCap;
+  resEls.keepHp.textContent = state.keepHp;
+  const pct = Math.max(0, (state.keepHp / state.keepMaxHp) * 100);
+  resEls.hpFill.style.width = pct + '%';
+  resEls.hpFill.style.background =
+    pct > 50 ? '#58b368' : pct > 25 ? '#e0a53a' : '#d23b2e';
 }
 
-waveBtn.addEventListener('click', () => {
-  state.wave += 1;
-  waveStatusEl.textContent = 'Wave ' + state.wave + ' incoming soon';
-});
-
-buildBtn.addEventListener('click', () => {
-  state.placingWall = !state.placingWall;
-  buildBtn.classList.toggle('active', state.placingWall);
-  buildBtn.textContent = state.placingWall
-    ? 'Placing wall, click ground (Esc to cancel)'
-    : 'Build Wall (10 Stone)';
-  ghost.visible = false;
-  if (!state.placingWall) deselect();
-});
-
-window.addEventListener('keydown', (e) => {
-  if (e.key === 'Escape' && state.placingWall) buildBtn.click();
+document.getElementById('btn-restart').addEventListener('click', () => {
+  window.location.reload();
 });
 
 // ---------------------------------------------------------------------------
-// Picking: click to select, placement mode drops a wall segment
+// Economy: passive income tick every 5 seconds
+// ---------------------------------------------------------------------------
+function incomePerTick() {
+  return {
+    wood: 2, // lumber
+    food: 2 + state.farmCount * 2, // farms
+    gold: 3 + state.houseCount, // taxes from houses
+    stone: 1, // quarry
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Placement: one mode for wall / house / farm / tower
+// ---------------------------------------------------------------------------
+const PLACE_DEFS = {
+  wall: { label: 'Build Wall (10 Stone)' },
+  house: { label: 'Build House (20 Wood)' },
+  farm: { label: 'Build Farm (15 Wood)' },
+  tower: { label: 'Build Tower (30 Stone, 10 Wood)' },
+};
+const placeBtns = {
+  wall: document.getElementById('btn-build-wall'),
+  house: document.getElementById('btn-build-house'),
+  farm: document.getElementById('btn-build-farm'),
+  tower: document.getElementById('btn-build-tower'),
+};
+
+function canAfford(cost) {
+  if (cost.wood && state.wood < cost.wood) return false;
+  if (cost.stone && state.stone < cost.stone) return false;
+  if (cost.gold && state.gold < cost.gold) return false;
+  return true;
+}
+
+function payCost(cost) {
+  if (cost.wood) state.wood -= cost.wood;
+  if (cost.stone) state.stone -= cost.stone;
+  if (cost.gold) state.gold -= cost.gold;
+}
+
+// Ghost preview while placing. Rebuilt per building type.
+const ghost = new THREE.Group();
+const ghostMat = new THREE.MeshStandardMaterial({
+  color: 0x7ec850,
+  transparent: true,
+  opacity: 0.55,
+  roughness: 0.9,
+});
+ghost.visible = false;
+scene.add(ghost);
+
+function setGhostFor(kind) {
+  while (ghost.children.length > 0) ghost.remove(ghost.children[0]);
+  if (kind === 'wall') {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(4, 3.2, 1.2), ghostMat);
+    b.position.y = 1.6;
+    ghost.add(b);
+    const t = new THREE.Mesh(new THREE.BoxGeometry(4, 0.6, 1.2), ghostMat);
+    t.position.y = 3.5;
+    ghost.add(t);
+  } else if (kind === 'house') {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(4.5, 3, 4), ghostMat);
+    b.position.y = 1.5;
+    ghost.add(b);
+    const r = new THREE.Mesh(new THREE.ConeGeometry(3.6, 2.4, 4), ghostMat);
+    r.position.y = 4.2;
+    r.rotation.y = Math.PI / 4;
+    ghost.add(r);
+  } else if (kind === 'farm') {
+    const b = new THREE.Mesh(new THREE.BoxGeometry(6, 0.5, 6), ghostMat);
+    b.position.y = 0.25;
+    ghost.add(b);
+    for (let i = -1; i <= 1; i++) {
+      const row = new THREE.Mesh(new THREE.BoxGeometry(5.4, 0.5, 0.8), ghostMat);
+      row.position.set(0, 0.6, i * 1.8);
+      ghost.add(row);
+    }
+  } else if (kind === 'tower') {
+    const b = new THREE.Mesh(new THREE.CylinderGeometry(1.8, 2, 6, 14), ghostMat);
+    b.position.y = 3;
+    ghost.add(b);
+    const c = new THREE.Mesh(new THREE.CylinderGeometry(2.1, 2.1, 0.6, 14), ghostMat);
+    c.position.y = 6.2;
+    ghost.add(c);
+  }
+}
+
+function resetPlaceButtons() {
+  for (const [kind, btn] of Object.entries(placeBtns)) {
+    btn.classList.remove('active');
+    btn.textContent = PLACE_DEFS[kind].label;
+  }
+}
+
+function cancelPlacing() {
+  state.placing = null;
+  ghost.visible = false;
+  resetPlaceButtons();
+  deselect();
+}
+
+function togglePlacing(kind) {
+  if (state.placing === kind) {
+    cancelPlacing();
+    return;
+  }
+  state.placing = kind;
+  setGhostFor(kind);
+  ghost.visible = false;
+  resetPlaceButtons();
+  const btn = placeBtns[kind];
+  btn.classList.add('active');
+  btn.textContent = 'Placing ' + kind + ', click ground (Esc to cancel)';
+}
+
+for (const [kind, btn] of Object.entries(placeBtns)) {
+  btn.addEventListener('click', () => togglePlacing(kind));
+}
+
+window.addEventListener('keydown', (e) => {
+  if (e.key === 'Escape' && state.placing) cancelPlacing();
+});
+
+function placeWallAt(x, z) {
+  const gx = Math.round(x / 2) * 2;
+  const gz = Math.round(z / 2) * 2;
+  const gy = terrainHeight(gx, gz);
+  const g = new THREE.Group();
+  box(4, 3.2, 1.2, stoneMat, gx, gy + 1.6, gz, g);
+  addMerlonsX(g, gx, gy + 3.2, 4, gz);
+  scene.add(g);
+  makeSelectable(g, 'Wall Segment');
+  setStatus('Wall built at ' + gx + ', ' + gz);
+}
+
+function placeHouseAt(x, z) {
+  const gx = Math.round(x / 2) * 2;
+  const gz = Math.round(z / 2) * 2;
+  house(gx, gz, houseColorIdx++);
+  state.houseCount += 1;
+  state.popCap += 4;
+  setStatus('House built at ' + gx + ', ' + gz + '. Population cap is now ' + state.popCap);
+}
+
+function placeFarmAt(x, z) {
+  const gx = Math.round(x / 2) * 2;
+  const gz = Math.round(z / 2) * 2;
+  const gy = terrainHeight(gx, gz);
+  const g = new THREE.Group();
+  const soilMat = new THREE.MeshStandardMaterial({ color: 0x6e4a22, roughness: 1 });
+  const cropMat = new THREE.MeshStandardMaterial({ color: 0x4d8a2f, roughness: 1 });
+  box(6, 0.5, 6, soilMat, gx, gy + 0.25, gz, g);
+  for (let i = -1; i <= 1; i++) {
+    box(5.4, 0.5, 0.8, cropMat, gx, gy + 0.6, gz + i * 1.8, g);
+  }
+  scene.add(g);
+  makeSelectable(g, 'Farm');
+  state.farmCount += 1;
+  setStatus('Farm built at ' + gx + ', ' + gz + '. Food income is now +' + (2 + state.farmCount * 2) + ' per tick');
+}
+
+function placeTowerAt(x, z) {
+  const gx = Math.round(x / 2) * 2;
+  const gz = Math.round(z / 2) * 2;
+  const gy = terrainHeight(gx, gz);
+  const g = new THREE.Group();
+  cylinder(1.8, 2, 6, stoneMat, gx, gy + 3, gz, g, 14);
+  cylinder(2.1, 2.1, 0.6, stoneDarkMat, gx, gy + 6.2, gz, g, 14);
+  for (let i = 0; i < 6; i++) {
+    const a = (i / 6) * Math.PI * 2;
+    box(0.6, 0.5, 0.6, stoneMat, gx + Math.cos(a) * 1.8, gy + 6.7, gz + Math.sin(a) * 1.8, g);
+  }
+  scene.add(g);
+  makeSelectable(g, 'Tower');
+  towers.push({ pos: new THREE.Vector3(gx, gy + 6.5, gz), cooldown: 0 });
+  setStatus('Tower built at ' + gx + ', ' + gz);
+}
+
+function placeAt(kind, x, z) {
+  if (Math.abs(x) > 55 || Math.abs(z) > 55) {
+    setStatus('Too far out, build closer to the castle');
+    return false;
+  }
+  const cost = COSTS[kind];
+  if (!canAfford(cost)) {
+    setStatus('Not enough resources');
+    return false;
+  }
+  payCost(cost);
+  if (kind === 'wall') placeWallAt(x, z);
+  else if (kind === 'house') placeHouseAt(x, z);
+  else if (kind === 'farm') placeFarmAt(x, z);
+  else if (kind === 'tower') placeTowerAt(x, z);
+  updateHUD();
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Enemy waves
+// ---------------------------------------------------------------------------
+const waveBtn = document.getElementById('btn-next-wave');
+
+const enemyBodyMat = new THREE.MeshStandardMaterial({ color: 0x8a2a22, roughness: 0.9 });
+const enemyHeadMat = new THREE.MeshStandardMaterial({ color: 0x5c1d16, roughness: 0.9 });
+const enemySkinMat = new THREE.MeshStandardMaterial({ color: 0xd9b48a, roughness: 0.9 });
+
+function createEnemy(x, z, speed) {
+  const g = new THREE.Group();
+  const y = terrainHeight(x, z);
+  box(1.1, 1.5, 0.7, enemyBodyMat, 0, 1.05, 0, g);
+  box(0.65, 0.6, 0.65, enemySkinMat, 0, 2.1, 0, g);
+  box(0.7, 0.25, 0.7, enemyHeadMat, 0, 2.45, 0, g); // helmet
+  box(0.12, 2.2, 0.12, darkMat, 0.7, 1.1, 0, g); // spear
+  g.position.set(x, y, z);
+  scene.add(g);
+  enemies.push({ group: g, hp: 2, speed, phase: Math.random() * Math.PI * 2 });
+}
+
+function spawnWave(count) {
+  for (let i = 0; i < count; i++) {
+    const angle = (i / count) * Math.PI * 2 + Math.random() * 0.6;
+    const r = 66 + Math.random() * 6;
+    createEnemy(
+      Math.cos(angle) * r,
+      Math.sin(angle) * r,
+      Math.min(2.4 + state.wave * 0.15, 4),
+    );
+  }
+}
+
+waveBtn.addEventListener('click', () => {
+  if (state.keepHp <= 0) return;
+  if (state.waveActive) {
+    setStatus('Wave ' + state.wave + ' is still raging');
+    return;
+  }
+  cancelPlacing();
+  state.wave += 1;
+  const count = 3 + (state.wave - 1) * 2;
+  state.waveActive = true;
+  spawnWave(count);
+  setStatus('Wave ' + state.wave + ': ' + count + ' enemies approach');
+});
+
+function damageKeep(amount) {
+  state.keepHp = Math.max(0, state.keepHp - amount);
+  updateHUD();
+  if (state.keepHp <= 0) {
+    state.waveActive = false;
+    fallenWaveEl.textContent = state.wave;
+    fallenOverlay.classList.remove('hidden');
+    setStatus('The castle has fallen');
+  }
+}
+
+function removeEnemy(index) {
+  const e = enemies[index];
+  scene.remove(e.group);
+  enemies.splice(index, 1);
+}
+
+function killEnemy(index) {
+  removeEnemy(index);
+}
+
+function checkWaveEnd() {
+  if (!state.waveActive || state.keepHp <= 0) return;
+  if (enemies.length === 0) {
+    state.waveActive = false;
+    state.gold += 20;
+    updateHUD();
+    setStatus('Wave ' + state.wave + ' cleared! +20 Gold');
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Tower shooting and arrows
+// ---------------------------------------------------------------------------
+const arrowMat = new THREE.MeshStandardMaterial({ color: 0x3a2c18, roughness: 1 });
+
+function fireArrow(tower, target) {
+  const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.12, 0.12, 1.1), arrowMat);
+  mesh.position.copy(tower.pos);
+  mesh.castShadow = false;
+  scene.add(mesh);
+  arrows.push({ mesh, target });
+}
+
+function updateTowers(delta) {
+  if (!state.waveActive || state.keepHp <= 0) return;
+  for (const t of towers) {
+    t.cooldown -= delta;
+    if (t.cooldown > 0) continue;
+    let best = null;
+    let bestD = TOWER_RANGE;
+    for (const e of enemies) {
+      const d = Math.hypot(
+        e.group.position.x - t.pos.x,
+        e.group.position.z - t.pos.z,
+      );
+      if (d < bestD) {
+        bestD = d;
+        best = e;
+      }
+    }
+    if (best) {
+      fireArrow(t, best);
+      t.cooldown = TOWER_FIRE_INTERVAL;
+    }
+  }
+}
+
+function updateArrows(delta) {
+  for (let i = arrows.length - 1; i >= 0; i--) {
+    const a = arrows[i];
+    const target = a.target;
+    if (!enemies.includes(target)) {
+      scene.remove(a.mesh);
+      arrows.splice(i, 1);
+      continue;
+    }
+    const tp = target.group.position;
+    const dest = new THREE.Vector3(tp.x, tp.y + 1.2, tp.z);
+    const dir = dest.clone().sub(a.mesh.position);
+    const dist = dir.length();
+    if (dist < 1.4) {
+      scene.remove(a.mesh);
+      arrows.splice(i, 1);
+      target.hp -= 1;
+      if (target.hp <= 0) {
+        const idx = enemies.indexOf(target);
+        if (idx >= 0) killEnemy(idx);
+      }
+      continue;
+    }
+    dir.normalize();
+    a.mesh.position.addScaledVector(dir, ARROW_SPEED * delta);
+    a.mesh.lookAt(dest);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Enemy movement: walk toward the keep, strike it on arrival
+// ---------------------------------------------------------------------------
+function updateEnemies(delta, elapsed) {
+  if (state.keepHp <= 0) return;
+  for (let i = enemies.length - 1; i >= 0; i--) {
+    const e = enemies[i];
+    const p = e.group.position;
+    const dx = -p.x;
+    const dz = -p.z;
+    const d = Math.hypot(dx, dz);
+    if (d < 12) {
+      damageKeep(10);
+      removeEnemy(i);
+      if (state.keepHp > 0) {
+        setStatus('An enemy struck the keep! Keep HP ' + state.keepHp);
+      }
+      continue;
+    }
+    const step = e.speed * delta;
+    p.x += (dx / d) * step;
+    p.z += (dz / d) * step;
+    p.y = terrainHeight(p.x, p.z) + Math.abs(Math.sin(elapsed * 6 + e.phase)) * 0.12;
+    e.group.rotation.y = Math.atan2(dx, dz);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Picking: click to select, placement mode drops a building
 // ---------------------------------------------------------------------------
 const raycaster = new THREE.Raycaster();
 const pointer = new THREE.Vector2();
 const groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0);
 const hitPoint = new THREE.Vector3();
-
-// Ghost preview while placing a wall.
-const ghost = new THREE.Group();
-{
-  const ghostMat = new THREE.MeshStandardMaterial({
-    color: 0x7ec850,
-    transparent: true,
-    opacity: 0.55,
-    roughness: 0.9,
-  });
-  const gBox = new THREE.Mesh(new THREE.BoxGeometry(4, 3.2, 1.2), ghostMat);
-  gBox.position.y = 1.6;
-  ghost.add(gBox);
-  const gTop = new THREE.Mesh(new THREE.BoxGeometry(4, 0.6, 1.2), ghostMat);
-  gTop.position.y = 3.5;
-  ghost.add(gTop);
-  ghost.visible = false;
-  scene.add(ghost);
-}
 
 function setPointerFromEvent(e) {
   pointer.x = (e.clientX / window.innerWidth) * 2 - 1;
@@ -493,37 +864,20 @@ function groundPointFromEvent(e) {
   return raycaster.ray.intersectPlane(groundPlane, hitPoint);
 }
 
-function placeWallAt(x, z) {
-  if (state.stone < WALL_COST_STONE) {
-    waveStatusEl.textContent = 'Not enough stone to build a wall';
-    return false;
-  }
-  state.stone -= WALL_COST_STONE;
-  const gx = Math.round(x / 2) * 2;
-  const gz = Math.round(z / 2) * 2;
-  const gy = terrainHeight(gx, gz);
-  const g = new THREE.Group();
-  box(4, 3.2, 1.2, stoneMat, gx, gy + 1.6, gz, g);
-  addMerlonsX(g, gx, gy + 3.2, 4, gz);
-  scene.add(g);
-  makeSelectable(g, 'Wall Segment');
-  updateHUD();
-  waveStatusEl.textContent = 'Wall built at ' + gx + ', ' + gz;
-  return true;
-}
-
 renderer.domElement.addEventListener('pointermove', (e) => {
-  if (!state.placingWall) return;
+  if (!state.placing) return;
   const p = groundPointFromEvent(e);
   if (!p) {
     ghost.visible = false;
     return;
   }
-  ghost.position.set(Math.round(p.x / 2) * 2, terrainHeight(p.x, p.z), Math.round(p.z / 2) * 2);
+  ghost.position.set(
+    Math.round(p.x / 2) * 2,
+    terrainHeight(p.x, p.z),
+    Math.round(p.z / 2) * 2,
+  );
   ghost.visible = true;
-  ghost.children.forEach((c) => {
-    c.material.color.setHex(state.stone >= WALL_COST_STONE ? 0x7ec850 : 0xd23b2e);
-  });
+  ghostMat.color.setHex(canAfford(COSTS[state.placing]) ? 0x7ec850 : 0xd23b2e);
 });
 
 // Distinguish a click from an orbit drag.
@@ -535,9 +889,9 @@ renderer.domElement.addEventListener('pointerdown', (e) => {
 });
 renderer.domElement.addEventListener('pointerup', (e) => {
   if (Math.hypot(e.clientX - downX, e.clientY - downY) > 5) return; // it was a drag
-  if (state.placingWall) {
+  if (state.placing) {
     const p = groundPointFromEvent(e);
-    if (p) placeWallAt(p.x, p.z);
+    if (p) placeAt(state.placing, p.x, p.z);
     return;
   }
   setPointerFromEvent(e);
@@ -561,15 +915,36 @@ window.addEventListener('resize', () => {
 });
 
 const clock = new THREE.Clock();
+let elapsed = 0;
+let incomeTimer = 0;
 
 function animate() {
   requestAnimationFrame(animate);
-  const t = clock.getElapsedTime();
+  const delta = Math.min(clock.getDelta(), 0.1);
+  elapsed += delta;
   // Gentle flag wave.
-  flag.rotation.y = Math.sin(t * 2.2) * 0.18;
+  flag.rotation.y = Math.sin(elapsed * 2.2) * 0.18;
+  // Economy tick every 5 seconds.
+  incomeTimer += delta;
+  if (incomeTimer >= 5) {
+    incomeTimer -= 5;
+    const inc = incomePerTick();
+    state.wood += inc.wood;
+    state.food += inc.food;
+    state.gold += inc.gold;
+    state.stone += inc.stone;
+    updateHUD();
+  }
+  updateTowers(delta);
+  updateArrows(delta);
+  updateEnemies(delta, elapsed);
+  checkWaveEnd();
   controls.update();
   renderer.render(scene, camera);
 }
+
+// Small debug handle used by automated tests (harmless in normal play).
+window.__castle = { state, enemies, towers, arrows, incomePerTick };
 
 updateHUD();
 animate();
