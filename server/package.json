@@ -1,1 +1,0 @@
-{"dependencies":{"cors":"^2.8.5","express":"^4.21.2","pg":"^8.13.1"},"description":"Leaderboard API for Castle Siege 3D (free Render web service)","engines":{"node":">=20"},"name":"castle-siege-3d-api","private":true,"scripts":{"start":"node server.js"},"type":"module","version":"0.1.0"}

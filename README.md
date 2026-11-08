@@ -21,45 +21,28 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
 - Drag to orbit the camera, scroll to zoom.
 - Click a building to select it (it gets a gold outline and its name shows in
   the top left).
-- `Build Wall (10 Stone)`, `Build House (20 Wood)`, `Build Farm (15 Wood)`
-  and `Build Tower (30 Stone, 10 Wood)` enter placement mode: move the mouse
-  over the ground to preview the building, click to build it (grid snapped).
-  Press Esc or the button again to cancel. A house raises the population cap
-  by 4 and adds +1 Gold per income tick, a farm adds +2 Food per tick, a
-  tower shoots arrows at enemies during waves.
+- `Build Wall`, `Build House`, `Build Farm` and `Build Tower` are icon
+  buttons (brick wall, house, wheat, tower) with the cost shown as a tiny
+  label under the icon, and a tooltip with the full action name. Clicking
+  one enters placement mode: move the mouse over the ground to preview the
+  building, click to build it (grid snapped). Press Esc or the button again
+  to cancel. A house raises the population cap by 4 and adds +1 Gold per
+  income tick, a farm adds +2 Food per tick, a tower shoots arrows at
+  enemies during waves. Costs: wall 10 Stone, house 20 Wood, farm 15 Wood,
+  tower 30 Stone + 10 Wood.
 - Resources grow every 5 seconds: +2 Wood, +2 Food, +3 Gold, +1 Stone, plus
   bonuses from farms and houses.
-- `Next Wave` sends enemies marching from the map edge toward the keep
-  (wave 1 has 3 enemies, each later wave adds 2). Corner towers and built
-  towers shoot arrows at enemies in range, 2 hits kill one. An enemy that
-  reaches the keep deals 10 damage. Clearing a wave pays +20 Gold. If Keep
-  HP reaches 0 the castle has fallen and the page offers a restart.
-- Sound: the `Sound: On/Off` button (or the `M` key) toggles sound, and the
+- `Next Wave` (crossed swords icon) sends enemies marching from the map
+  edge toward the keep (wave 1 has 3 enemies, each later wave adds 2).
+  Corner towers and built towers shoot arrows at enemies in range, 2 hits
+  kill one. An enemy that reaches the keep deals 10 damage. Clearing a
+  wave pays +20 Gold. If Keep HP reaches 0 the castle has fallen and the
+  page offers a restart.
+- Sound: the speaker icon button (or the `M` key) toggles sound, and the
   choice is remembered. Music starts after your first click, browsers block
   audio before any interaction. Arrow shots, hits, deaths, building, the
   wave horn, the victory fanfare, keep damage and game over all have sounds.
-- Save: `Save Game` saves your resources, wave, keep HP and every building
-  you placed. The game also autosaves after each cleared wave. Reloading
-  the page offers `Continue` (pick up where you left off) or `New Game`
-  (wipe the save and start over). A damaged save is ignored and the game
-  starts fresh.
-- Leaderboard: the panel on the right shows the top 10 players. Score is
-  waves cleared first, then enemies defeated, then gold earned. After you
-  clear a wave, or when the castle falls, enter a name (20 characters max,
-  "Anonymous" if left blank) and press `Submit score`. If the leaderboard
-  server is asleep or unreachable, the panel shows the scores saved on
-  your own device instead, and says so.
-
-## Leaderboard API
-
-The game can talk to a small Node/Express API in `server/` (endpoints:
-`GET /health`, `GET /api/scores?limit=10`, `POST /api/scores` with
-`{ "name", "waves", "kills", "gold" }`). The server backend is NOT deployed
-right now, so the game uses its local fallback: scores are saved on the
-player's own device and the panel says so. The game uses
-`VITE_LEADERBOARD_API_URL` when set, otherwise the default Render URL,
-and falls back to local scores whenever the server is unreachable. Run
-the API locally with `cd server && npm install && npm start` (port 3001).
+- The game always starts fresh. There is no save game and no leaderboard.
 
 ## Phase plan
 
@@ -73,12 +56,12 @@ the API locally with `cd server && npm install && npm start` (port 3001).
   enemy hits and deaths, building, wave horn, victory fanfare, keep damage,
   game over and UI clicks, plus a quiet ambient medieval music loop with a
   mute button (and M key). All audio is bundled locally in `public/audio/`.
-- **Phase 4 (done):** Save game and leaderboard server backend. Progress
-  (resources, wave, keep HP, placed buildings) saves to localStorage with
-  autosave after each cleared wave, a Save button, and a Continue / New
-  Game choice on reload. A Node/Express leaderboard API (see "Leaderboard
-  API" above) stores top 10 scores; the server backend is not deployed,
-  so the game shows the local top 10 saved on the player's device.
+- **Phase 4 (cancelled by Saud):** Save game and leaderboard server
+  backend were built (localStorage save with autosave, Continue / New Game
+  on reload, a Node/Express leaderboard API with a Postgres store) and
+  then removed at Saud's request. The database was deleted, the `server/`
+  directory is gone, and the game has no save game, no score submission
+  and no leaderboard. The game always starts fresh.
 - **Phase 5 (done):** Graphics-first visual upgrade. Procedural canvas
   textures drawn in code (ashlar stone, grass, wood planks, roof tiles,
   dirt path, courtyard flagstones), a gradient sky with a sun disc and

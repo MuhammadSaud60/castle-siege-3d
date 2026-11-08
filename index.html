@@ -27,30 +27,31 @@
       </div>
 
       <div class="panel" id="actions">
-        <button id="btn-build-wall">Build Wall (10 Stone)</button>
-        <button id="btn-build-house">Build House (20 Wood)</button>
-        <button id="btn-build-farm">Build Farm (15 Wood)</button>
-        <button id="btn-build-tower">Build Tower (30 Stone, 10 Wood)</button>
-        <button id="btn-next-wave">Next Wave</button>
-        <button id="btn-save">Save Game</button>
-        <button id="btn-leaderboard">Leaderboard</button>
-        <button id="btn-sound">Sound: On</button>
+        <button id="btn-build-wall" class="icon-btn" title="Build Wall (10 Stone)" aria-label="Build Wall (10 Stone)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="6" width="18" height="13" rx="1"/><path d="M3 10.5h18M3 15h18M8.5 6v4.5M15 10.5V15M12 15v4"/></svg>
+          <span class="btn-label">10 Stone</span>
+        </button>
+        <button id="btn-build-house" class="icon-btn" title="Build House (20 Wood)" aria-label="Build House (20 Wood)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 11l8-6 8 6"/><path d="M6 9.5V19h12V9.5"/><path d="M10 19v-5h4v5"/></svg>
+          <span class="btn-label">20 Wood</span>
+        </button>
+        <button id="btn-build-farm" class="icon-btn" title="Build Farm (15 Wood)" aria-label="Build Farm (15 Wood)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 21V9"/><path d="M12 9c-2.5 0-4-1.5-4-4 2.5 0 4 1.5 4 4z"/><path d="M12 9c2.5 0 4-1.5 4-4-2.5 0-4 1.5-4 4z"/><path d="M12 14c-2.5 0-4-1.5-4-4 2.5 0 4 1.5 4 4z"/><path d="M12 14c2.5 0 4-1.5 4-4-2.5 0-4 1.5-4 4z"/></svg>
+          <span class="btn-label">15 Wood</span>
+        </button>
+        <button id="btn-build-tower" class="icon-btn" title="Build Tower (30 Stone, 10 Wood)" aria-label="Build Tower (30 Stone, 10 Wood)">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 21V9h2.5V5.5H11V9h2V5.5h2.5V9H18v12z"/><path d="M10 21v-4h4v4"/></svg>
+          <span class="btn-label">30 Stone, 10 Wood</span>
+        </button>
+        <button id="btn-next-wave" class="icon-btn" title="Next Wave" aria-label="Next Wave">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5.5 3.5L15 15"/><path d="M18.5 3.5L9 15"/><path d="M4 5.5l2.5-1M20 5.5l-2.5-1"/><path d="M14.5 15.5l1.5 4M9.5 15.5l-1.5 4"/></svg>
+          <span class="btn-label">Next</span>
+        </button>
+        <button id="btn-sound" class="icon-btn" title="Sound" aria-label="Sound">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path class="snd-waves" d="M16 9c1.2 1 1.2 5 0 6M18.5 7c2 1.8 2 8.2 0 10"/><path class="snd-slash" d="M3 3l18 18"/></svg>
+          <span class="btn-label" id="sound-label">On</span>
+        </button>
         <p id="wave-status">Wave 0, no enemies yet</p>
-      </div>
-
-      <div class="panel" id="leaderboard-panel">
-        <h3>Leaderboard</h3>
-        <p id="score-line">Your score: Wave 0, 0 kills, 0 gold</p>
-        <ol id="leaderboard-list">
-          <li>Loading...</li>
-        </ol>
-        <p id="leaderboard-note"></p>
-        <div class="score-form">
-          <input id="score-name" maxlength="20" placeholder="Your name" />
-          <button id="btn-submit-score" disabled>Submit score</button>
-        </div>
-        <p id="score-status">Clear a wave to submit your score.</p>
-        <button id="btn-refresh-board">Refresh</button>
       </div>
 
       <div class="panel" id="hint">
@@ -58,24 +59,10 @@
       </div>
     </div>
 
-    <div id="start-overlay" class="hidden">
-      <div class="start-box">
-        <h2>Castle Siege 3D</h2>
-        <p id="save-summary"></p>
-        <button id="btn-continue">Continue</button>
-        <button id="btn-new-game">New Game</button>
-      </div>
-    </div>
-
     <div id="fallen-overlay" class="hidden">
       <div class="fallen-box">
         <h2>Castle has fallen</h2>
         <p>The keep was destroyed on wave <span id="fallen-wave">1</span>.</p>
-        <div class="score-form">
-          <input id="fallen-name" maxlength="20" placeholder="Your name" />
-          <button id="btn-submit-fallen" disabled>Submit score</button>
-        </div>
-        <p id="fallen-score-status"></p>
         <button id="btn-restart">Restart</button>
       </div>
     </div>

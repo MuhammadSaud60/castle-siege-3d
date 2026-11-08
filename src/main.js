@@ -1,6 +1,8 @@
 // Castle Siege 3D - graphics upgrade (Phase 5): procedural canvas textures,
-// gradient sky with sun and clouds, detailed models, particles. Phases 1-4:
-// 3D scene, economy and waves, sounds and music, save game and leaderboard.
+// gradient sky with sun and clouds, detailed models, particles. Phases 1-3:
+// 3D scene, economy and waves, sounds and music. (Phase 4 save game and
+// leaderboard were removed at Saud's request; the game always starts fresh
+// and has no score submission.)
 // A Stronghold-style castle builder scene: procedural low-poly geometry only,
 // no external models, images or audio. Three.js + OrbitControls, bundled by Vite.
 
@@ -39,10 +41,12 @@ try {
 }
 
 const soundBtn = document.getElementById('btn-sound');
+const soundLabel = document.getElementById('sound-label');
 
 function updateSoundButton() {
   if (!soundBtn) return;
-  soundBtn.textContent = muted ? 'Sound: Off' : 'Sound: On';
+  soundBtn.classList.toggle('muted', muted);
+  if (soundLabel) soundLabel.textContent = muted ? 'Off' : 'On';
 }
 
 function unlockAudio() {
@@ -148,7 +152,6 @@ const enemies = [];
 // Arrows in flight: { mesh, target }
 const arrows = [];
 // Buildings the player placed: { kind: 'wall' | 'house' | 'farm' | 'tower', x, z }
-// (Phase 4: saved to localStorage so a game can continue after a reload.)
 const built = [];
 
 // ---------------------------------------------------------------------------
@@ -940,7 +943,6 @@ function updateHUD() {
   resEls.hpFill.style.width = pct + '%';
   resEls.hpFill.style.background =
     pct > 50 ? '#58b368' : pct > 25 ? '#e0a53a' : '#d23b2e';
-  updateScoreLine();
 }
 
 document.getElementById('btn-restart').addEventListener('click', () => {
@@ -963,10 +965,10 @@ function incomePerTick() {
 // Placement: one mode for wall / house / farm / tower
 // ---------------------------------------------------------------------------
 const PLACE_DEFS = {
-  wall: { label: 'Build Wall (10 Stone)' },
-  house: { label: 'Build House (20 Wood)' },
-  farm: { label: 'Build Farm (15 Wood)' },
-  tower: { label: 'Build Tower (30 Stone, 10 Wood)' },
+  wall: { label: '10 Stone' },
+  house: { label: '20 Wood' },
+  farm: { label: '15 Wood' },
+  tower: { label: '30 Stone, 10 Wood' },
 };
 const placeBtns = {
   wall: document.getElementById('btn-build-wall'),
@@ -1035,10 +1037,14 @@ function setGhostFor(kind) {
   }
 }
 
+function placeBtnLabel(btn) {
+  return btn.querySelector('.btn-label');
+}
+
 function resetPlaceButtons() {
   for (const [kind, btn] of Object.entries(placeBtns)) {
     btn.classList.remove('active');
-    btn.textContent = PLACE_DEFS[kind].label;
+    placeBtnLabel(btn).textContent = PLACE_DEFS[kind].label;
   }
 }
 
@@ -1060,7 +1066,7 @@ function togglePlacing(kind) {
   resetPlaceButtons();
   const btn = placeBtns[kind];
   btn.classList.add('active');
-  btn.textContent = 'Placing ' + kind + ', click ground (Esc to cancel)';
+  placeBtnLabel(btn).textContent = 'Placing';
 }
 
 for (const [kind, btn] of Object.entries(placeBtns)) {
@@ -1314,7 +1320,6 @@ function damageKeep(amount) {
     fallenWaveEl.textContent = state.wave;
     fallenOverlay.classList.remove('hidden');
     setStatus('The castle has fallen');
-    enableScoreSubmit();
   } else {
     playSound('thud');
   }
@@ -1340,8 +1345,6 @@ function checkWaveEnd() {
     updateHUD();
     playSound('victory');
     setStatus('Wave ' + state.wave + ' cleared! +20 Gold');
-    enableScoreSubmit();
-    saveGame(true); // autosave after every wave clear
   }
 }
 
@@ -1520,344 +1523,6 @@ renderer.domElement.addEventListener('pointerup', (e) => {
   }
 });
 
-// ---------------------------------------------------------------------------
-// Save game + leaderboard (Phase 4)
-// Save: localStorage, autosaved after every wave clear, plus a Save button.
-// A corrupt or out-of-date save is ignored and the game starts fresh.
-// Leaderboard: a small Node API (see server/). The game talks to it with
-// fetch; if the server is unreachable the panel shows scores saved on this
-// device instead, clearly marked as local.
-// ---------------------------------------------------------------------------
-const SAVE_KEY = 'castle-siege-save-v1';
-const LOCAL_SCORES_KEY = 'castle-siege-local-scores-v1';
-const DEFAULT_API_BASE = 'https://castle-siege-3d-api.onrender.com';
-let apiBase = import.meta.env.VITE_LEADERBOARD_API_URL || DEFAULT_API_BASE;
-let gameStarted = true; // false while the Continue / New Game overlay is up
-let canSubmit = false;
-let boardServerOk = false;
-
-const startOverlay = document.getElementById('start-overlay');
-const saveSummaryEl = document.getElementById('save-summary');
-const scoreLineEl = document.getElementById('score-line');
-const lbPanel = document.getElementById('leaderboard-panel');
-const lbList = document.getElementById('leaderboard-list');
-const lbNote = document.getElementById('leaderboard-note');
-const scoreNameInput = document.getElementById('score-name');
-const submitScoreBtn = document.getElementById('btn-submit-score');
-const scoreStatusEl = document.getElementById('score-status');
-const fallenNameInput = document.getElementById('fallen-name');
-const submitFallenBtn = document.getElementById('btn-submit-fallen');
-const fallenScoreStatusEl = document.getElementById('fallen-score-status');
-
-function isFiniteNumber(n, min, max) {
-  return typeof n === 'number' && Number.isFinite(n) && n >= min && n <= max;
-}
-
-function collectSave() {
-  return {
-    v: 1,
-    savedAt: Date.now(),
-    wood: state.wood,
-    stone: state.stone,
-    gold: state.gold,
-    food: state.food,
-    population: state.population,
-    popCap: state.popCap,
-    wave: state.wave,
-    keepHp: state.keepHp,
-    kills: state.kills,
-    goldEarned: state.goldEarned,
-    houseCount: state.houseCount,
-    farmCount: state.farmCount,
-    houseColorIdx,
-    buildings: built.map((b) => ({ kind: b.kind, x: b.x, z: b.z })),
-  };
-}
-
-function saveGame(quiet) {
-  try {
-    window.localStorage.setItem(SAVE_KEY, JSON.stringify(collectSave()));
-    if (!quiet) setStatus('Game saved. Wave ' + state.wave + ', Keep HP ' + state.keepHp);
-    return true;
-  } catch (err) {
-    if (!quiet) setStatus('Could not save the game in this browser');
-    return false;
-  }
-}
-
-function loadSave() {
-  let raw;
-  try {
-    raw = window.localStorage.getItem(SAVE_KEY);
-  } catch (err) {
-    return null;
-  }
-  if (!raw) return null;
-  let save;
-  try {
-    save = JSON.parse(raw);
-  } catch (err) {
-    return null; // corrupt save, start fresh
-  }
-  if (!save || save.v !== 1 || typeof save !== 'object') return null;
-  const nums = [
-    ['wood', 0, 100000],
-    ['stone', 0, 100000],
-    ['gold', 0, 100000],
-    ['food', 0, 100000],
-    ['population', 0, 1000],
-    ['popCap', 4, 1000],
-    ['wave', 0, 100],
-    ['keepHp', 1, 100],
-    ['kills', 0, 100000],
-    ['goldEarned', 0, 10000000],
-    ['houseCount', 0, 200],
-    ['farmCount', 0, 200],
-    ['houseColorIdx', 6, 1000],
-  ];
-  for (const [key, min, max] of nums) {
-    if (!isFiniteNumber(save[key], min, max)) return null;
-  }
-  if (!Array.isArray(save.buildings) || save.buildings.length > 200) return null;
-  for (const b of save.buildings) {
-    if (!b || !['wall', 'house', 'farm', 'tower'].includes(b.kind)) return null;
-    if (!isFiniteNumber(b.x, -60, 60) || !isFiniteNumber(b.z, -60, 60)) return null;
-  }
-  return save;
-}
-
-function clearSave() {
-  try {
-    window.localStorage.removeItem(SAVE_KEY);
-  } catch (err) {
-    // storage unavailable, nothing to clear
-  }
-}
-
-function applySave(save) {
-  // Rebuild player buildings from the base counts, then apply the rest.
-  state.houseCount = 0;
-  state.farmCount = 0;
-  state.popCap = 16;
-  houseColorIdx = 6;
-  built.length = 0;
-  for (const b of save.buildings) {
-    if (b.kind === 'wall') placeWallAt(b.x, b.z);
-    else if (b.kind === 'house') placeHouseAt(b.x, b.z);
-    else if (b.kind === 'farm') placeFarmAt(b.x, b.z);
-    else if (b.kind === 'tower') placeTowerAt(b.x, b.z);
-  }
-  state.wood = save.wood;
-  state.stone = save.stone;
-  state.gold = save.gold;
-  state.food = save.food;
-  state.population = save.population;
-  state.popCap = save.popCap;
-  state.wave = save.wave;
-  state.keepHp = save.keepHp;
-  state.kills = save.kills;
-  state.goldEarned = save.goldEarned;
-  state.houseCount = save.houseCount;
-  state.farmCount = save.farmCount;
-  houseColorIdx = save.houseColorIdx;
-  state.waveActive = false;
-  updateHUD();
-  setStatus('Save loaded. Wave ' + state.wave + ' continues, Keep HP ' + state.keepHp);
-}
-
-document.getElementById('btn-save').addEventListener('click', () => {
-  unlockAudio();
-  saveGame(false);
-  playSound('click');
-});
-
-document.getElementById('btn-continue').addEventListener('click', () => {
-  const save = loadSave();
-  if (save) applySave(save);
-  startOverlay.classList.add('hidden');
-  gameStarted = true;
-});
-
-document.getElementById('btn-new-game').addEventListener('click', () => {
-  clearSave();
-  startOverlay.classList.add('hidden');
-  gameStarted = true;
-  setStatus('New game. Wave 0, no enemies yet');
-});
-
-// Show the Continue overlay when a save exists, otherwise start right away.
-{
-  const existing = loadSave();
-  if (existing) {
-    gameStarted = false;
-    const when = existing.savedAt
-      ? new Date(existing.savedAt).toLocaleString()
-      : 'an earlier session';
-    saveSummaryEl.textContent =
-      'Saved game from ' + when + ': Wave ' + existing.wave +
-      ', Keep HP ' + existing.keepHp + ', Gold ' + existing.gold +
-      ', ' + existing.buildings.length + ' buildings placed.';
-    startOverlay.classList.remove('hidden');
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Leaderboard
-// ---------------------------------------------------------------------------
-function updateScoreLine() {
-  if (!scoreLineEl) return;
-  scoreLineEl.textContent =
-    'Your score: Wave ' + state.wave +
-    ', ' + state.kills + ' kills, ' + state.goldEarned + ' gold';
-}
-
-function updateSubmitButtons() {
-  const enabled = canSubmit && state.wave > 0;
-  submitScoreBtn.disabled = !enabled;
-  submitFallenBtn.disabled = !enabled;
-  if (enabled) {
-    scoreStatusEl.textContent = 'Submit your score to the leaderboard.';
-    fallenScoreStatusEl.textContent = '';
-  } else if (state.wave === 0) {
-    scoreStatusEl.textContent = 'Clear a wave to submit your score.';
-  }
-}
-
-function enableScoreSubmit() {
-  canSubmit = true;
-  updateSubmitButtons();
-}
-
-function compareLocalScores(a, b) {
-  if (b.waves !== a.waves) return b.waves - a.waves;
-  if (b.kills !== a.kills) return b.kills - a.kills;
-  if (b.gold !== a.gold) return b.gold - a.gold;
-  return new Date(a.created_at) - new Date(b.created_at);
-}
-
-function readLocalScores() {
-  try {
-    const rows = JSON.parse(window.localStorage.getItem(LOCAL_SCORES_KEY) || '[]');
-    return Array.isArray(rows) ? rows : [];
-  } catch (err) {
-    return [];
-  }
-}
-
-function addLocalScore(entry) {
-  const rows = readLocalScores();
-  rows.push({ ...entry, created_at: new Date().toISOString() });
-  rows.sort(compareLocalScores);
-  try {
-    window.localStorage.setItem(LOCAL_SCORES_KEY, JSON.stringify(rows.slice(0, 10)));
-  } catch (err) {
-    // storage unavailable, local fallback just stays empty
-  }
-}
-
-function renderBoard(scores) {
-  lbList.replaceChildren();
-  if (scores.length === 0) {
-    const li = document.createElement('li');
-    li.textContent = 'No scores yet. Be the first to clear a wave.';
-    lbList.appendChild(li);
-    return;
-  }
-  for (const s of scores) {
-    const li = document.createElement('li');
-    const rank = document.createElement('b');
-    rank.textContent = '#' + s.rank + ' ';
-    li.appendChild(rank);
-    li.appendChild(document.createTextNode(
-      s.name + '  Wave ' + s.waves + ', ' + s.kills + ' kills, ' + s.gold + ' gold',
-    ));
-    lbList.appendChild(li);
-  }
-}
-
-async function fetchBoard() {
-  lbNote.textContent = 'Waking up the leaderboard server, this can take a minute...';
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), 70000);
-  try {
-    const res = await fetch(apiBase + '/api/scores?limit=10', { signal: controller.signal });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    boardServerOk = true;
-    renderBoard(data.scores || []);
-    lbNote.textContent = 'Top 10 players, from the server.';
-  } catch (err) {
-    boardServerOk = false;
-    renderBoard(
-      readLocalScores().map((s, i) => ({ ...s, rank: i + 1 })),
-    );
-    lbNote.textContent = 'Leaderboard server is unreachable, showing scores saved on this device.';
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-async function submitScore(name) {
-  if (!canSubmit || state.wave === 0) {
-    scoreStatusEl.textContent = 'Clear a wave to submit your score.';
-    return;
-  }
-  const entry = {
-    name: (name || '').trim() || 'Anonymous',
-    waves: state.wave,
-    kills: state.kills,
-    gold: state.goldEarned,
-  };
-  submitScoreBtn.disabled = true;
-  submitFallenBtn.disabled = true;
-  scoreStatusEl.textContent = 'Submitting...';
-  fallenScoreStatusEl.textContent = 'Submitting...';
-  try {
-    const res = await fetch(apiBase + '/api/scores', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(entry),
-    });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
-    canSubmit = false;
-    addLocalScore(entry);
-    const msg = 'Score submitted' + (data.rank ? ', rank #' + data.rank : '') + '.';
-    scoreStatusEl.textContent = msg;
-    fallenScoreStatusEl.textContent = msg;
-    fetchBoard();
-  } catch (err) {
-    canSubmit = false;
-    addLocalScore(entry);
-    const msg = 'Server unreachable, your score was saved on this device.';
-    scoreStatusEl.textContent = msg;
-    fallenScoreStatusEl.textContent = msg;
-    fetchBoard();
-  }
-  updateSubmitButtons();
-}
-
-submitScoreBtn.addEventListener('click', () => {
-  unlockAudio();
-  submitScore(scoreNameInput.value);
-});
-submitFallenBtn.addEventListener('click', () => {
-  unlockAudio();
-  submitScore(fallenNameInput.value);
-});
-document.getElementById('btn-refresh-board').addEventListener('click', () => {
-  unlockAudio();
-  fetchBoard();
-});
-document.getElementById('btn-leaderboard').addEventListener('click', () => {
-  unlockAudio();
-  lbPanel.classList.toggle('hidden');
-  if (!lbPanel.classList.contains('hidden') && !boardServerOk) fetchBoard();
-});
-
-updateScoreLine();
-updateSubmitButtons();
-fetchBoard();
 
 // ---------------------------------------------------------------------------
 // Resize + render loop
@@ -1914,20 +1579,17 @@ function animate() {
     });
   }
   updateParticles(delta);
-  // Economy tick every 5 seconds. Paused while the Continue / New Game
-  // overlay is up so resources do not grow before the player chooses.
+  // Economy tick every 5 seconds.
   incomeTimer += delta;
   if (incomeTimer >= 5) {
     incomeTimer -= 5;
-    if (gameStarted) {
-      const inc = incomePerTick();
-      state.wood += inc.wood;
-      state.food += inc.food;
-      state.gold += inc.gold;
-      state.goldEarned += inc.gold;
-      state.stone += inc.stone;
-      updateHUD();
-    }
+    const inc = incomePerTick();
+    state.wood += inc.wood;
+    state.food += inc.food;
+    state.gold += inc.gold;
+    state.goldEarned += inc.gold;
+    state.stone += inc.stone;
+    updateHUD();
   }
   updateTowers(delta);
   updateArrows(delta);
@@ -1945,23 +1607,6 @@ window.__castle = {
   arrows,
   built,
   incomePerTick,
-  save: {
-    collect: collectSave,
-    save: saveGame,
-    load: loadSave,
-    apply: applySave,
-    clear: clearSave,
-    isStarted: () => gameStarted,
-    canSubmit: () => canSubmit,
-  },
-  leaderboard: {
-    getApiBase: () => apiBase,
-    setApiBase: (url) => { apiBase = url; },
-    fetchBoard,
-    submitScore,
-    enableSubmit: enableScoreSubmit,
-    serverOk: () => boardServerOk,
-  },
   audio: {
     isUnlocked: () => audioUnlocked,
     isMuted: () => muted,
