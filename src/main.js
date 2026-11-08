@@ -1,9 +1,12 @@
-// Castle Siege 3D - Phase 2: economy + enemy waves
+// Castle Siege 3D - graphics upgrade (Phase 5): procedural canvas textures,
+// gradient sky with sun and clouds, detailed models, particles. Phases 1-4:
+// 3D scene, economy and waves, sounds and music, save game and leaderboard.
 // A Stronghold-style castle builder scene: procedural low-poly geometry only,
 // no external models, images or audio. Three.js + OrbitControls, bundled by Vite.
 
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
+import { mergeGeometries } from 'three/addons/utils/BufferGeometryUtils.js';
 
 // ---------------------------------------------------------------------------
 // Audio: sound effects and background music (Phase 3)
@@ -168,8 +171,8 @@ renderer.shadowMap.type = THREE.PCFSoftShadowMap;
 container.appendChild(renderer.domElement);
 
 const scene = new THREE.Scene();
-scene.background = new THREE.Color(0x87bfe8);
-scene.fog = new THREE.Fog(0xbfd9f2, 90, 230);
+scene.background = new THREE.Color(0x87bfe8); // replaced by the gradient sky texture below
+scene.fog = new THREE.Fog(0xd3e2ee, 100, 260);
 
 const camera = new THREE.PerspectiveCamera(
   55,
@@ -188,12 +191,258 @@ controls.maxDistance = 130;
 controls.maxPolarAngle = Math.PI / 2 - 0.04; // never go under the ground
 
 // ---------------------------------------------------------------------------
+// Procedural canvas textures (graphics upgrade)
+// Everything is drawn in code, no external downloads, so the build stays
+// self-contained. Textures are 256x256, small enough for weak hardware.
+// ---------------------------------------------------------------------------
+function canvasTexture(canvas, rx = 1, ry = 1) {
+  const t = new THREE.CanvasTexture(canvas);
+  t.wrapS = THREE.RepeatWrapping;
+  t.wrapT = THREE.RepeatWrapping;
+  t.repeat.set(rx, ry);
+  t.colorSpace = THREE.SRGBColorSpace;
+  t.anisotropy = Math.min(2, renderer.capabilities.getMaxAnisotropy());
+  return t;
+}
+
+function blankCanvas(size) {
+  const c = document.createElement('canvas');
+  c.width = size;
+  c.height = size;
+  return c;
+}
+
+function speckle(g, size, n, alpha) {
+  for (let i = 0; i < n; i++) {
+    const v = 90 + Math.floor(Math.random() * 90);
+    g.fillStyle = `rgba(${v},${v},${v},${alpha})`;
+    g.fillRect(Math.random() * size, Math.random() * size, 1.5, 1.5);
+  }
+}
+
+// Ashlar stone: rows of blocks with per-block shade variation and mortar lines.
+function stoneCanvas(base) {
+  const s = 256;
+  const c = blankCanvas(s);
+  const g = c.getContext('2d');
+  g.fillStyle = `rgb(${base},${base - 2},${base - 12})`;
+  g.fillRect(0, 0, s, s);
+  const rows = 8;
+  const rh = s / rows;
+  for (let row = 0; row < rows; row++) {
+    const off = (row % 2) * 32;
+    for (let col = -1; col < 5; col++) {
+      const shade = base + Math.floor(Math.random() * 24) - 12;
+      g.fillStyle = `rgb(${shade},${shade - 2},${shade - 12})`;
+      g.fillRect(col * 64 + off + 1, row * rh + 1, 62, rh - 2);
+    }
+  }
+  g.strokeStyle = 'rgba(60,58,50,0.5)';
+  g.lineWidth = 1.5;
+  for (let row = 0; row <= rows; row++) {
+    g.beginPath(); g.moveTo(0, row * rh); g.lineTo(s, row * rh); g.stroke();
+  }
+  speckle(g, s, 2200, 0.07);
+  return c;
+}
+
+// Grass: green base with soft blotches and tiny blade speckles.
+function grassCanvas() {
+  const s = 256;
+  const c = blankCanvas(s);
+  const g = c.getContext('2d');
+  g.fillStyle = '#5d8f4e';
+  g.fillRect(0, 0, s, s);
+  const tones = ['#54854a', '#6b9c58', '#4f7d44', '#679a55'];
+  for (let i = 0; i < 260; i++) {
+    g.fillStyle = tones[i % tones.length];
+    g.globalAlpha = 0.25;
+    g.beginPath();
+    g.ellipse(Math.random() * s, Math.random() * s, 4 + Math.random() * 12, 3 + Math.random() * 8, Math.random() * Math.PI, 0, Math.PI * 2);
+    g.fill();
+  }
+  g.globalAlpha = 1;
+  for (let i = 0; i < 900; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(40,90,35,0.35)' : 'rgba(140,190,110,0.3)';
+    g.fillRect(Math.random() * s, Math.random() * s, 1, 2 + Math.random() * 2);
+  }
+  return c;
+}
+
+// Wood planks with grain.
+function woodCanvas() {
+  const s = 256;
+  const c = blankCanvas(s);
+  const g = c.getContext('2d');
+  g.fillStyle = '#8a6134';
+  g.fillRect(0, 0, s, s);
+  for (let col = 0; col < 6; col++) {
+    const shade = 128 + Math.floor(Math.random() * 24) - 12;
+    g.fillStyle = `rgb(${shade},${Math.floor(shade * 0.72)},${Math.floor(shade * 0.4)})`;
+    g.fillRect(col * 43 + 1, 0, 41, s);
+    g.strokeStyle = 'rgba(60,38,16,0.5)';
+    g.beginPath(); g.moveTo(col * 43, 0); g.lineTo(col * 43, s); g.stroke();
+    g.strokeStyle = 'rgba(90,58,24,0.35)';
+    for (let i = 0; i < 5; i++) {
+      const x = col * 43 + 6 + Math.random() * 30;
+      g.beginPath(); g.moveTo(x, 0);
+      g.bezierCurveTo(x + 4, s * 0.3, x - 4, s * 0.6, x + 2, s);
+      g.stroke();
+    }
+  }
+  return c;
+}
+
+// Terracotta roof tiles: overlapping rows of rounded tiles.
+function roofCanvas() {
+  const s = 256;
+  const c = blankCanvas(s);
+  const g = c.getContext('2d');
+  g.fillStyle = '#8a4b2d';
+  g.fillRect(0, 0, s, s);
+  const rows = 8;
+  const rh = s / rows;
+  for (let row = 0; row < rows; row++) {
+    const off = (row % 2) * 16;
+    for (let col = -1; col < 9; col++) {
+      const shade = 128 + Math.floor(Math.random() * 26) - 13;
+      g.fillStyle = `rgb(${shade},${Math.floor(shade * 0.55)},${Math.floor(shade * 0.33)})`;
+      g.beginPath();
+      g.arc(col * 32 + off + 16, row * rh + rh, 15, Math.PI, 0);
+      g.fill();
+      g.strokeStyle = 'rgba(70,30,15,0.45)';
+      g.stroke();
+    }
+  }
+  return c;
+}
+
+// Packed dirt with speckles, darker at the left and right edges.
+function dirtCanvas() {
+  const s = 256;
+  const c = blankCanvas(s);
+  const g = c.getContext('2d');
+  g.fillStyle = '#a68a5e';
+  g.fillRect(0, 0, s, s);
+  for (let i = 0; i < 500; i++) {
+    g.fillStyle = Math.random() < 0.5 ? 'rgba(110,85,45,0.25)' : 'rgba(190,160,110,0.25)';
+    g.beginPath();
+    g.arc(Math.random() * s, Math.random() * s, 1 + Math.random() * 4, 0, Math.PI * 2);
+    g.fill();
+  }
+  const edge = g.createLinearGradient(0, 0, s, 0);
+  edge.addColorStop(0, 'rgba(70,55,30,0.45)');
+  edge.addColorStop(0.2, 'rgba(70,55,30,0)');
+  edge.addColorStop(0.8, 'rgba(70,55,30,0)');
+  edge.addColorStop(1, 'rgba(70,55,30,0.45)');
+  g.fillStyle = edge;
+  g.fillRect(0, 0, s, s);
+  return c;
+}
+
+// Large flagstones for the courtyard.
+function slabCanvas() {
+  const s = 256;
+  const c = blankCanvas(s);
+  const g = c.getContext('2d');
+  g.fillStyle = '#8f8a7c';
+  g.fillRect(0, 0, s, s);
+  for (let row = 0; row < 4; row++) {
+    const off = (row % 2) * 32;
+    for (let col = -1; col < 5; col++) {
+      const shade = 138 + Math.floor(Math.random() * 20) - 10;
+      g.fillStyle = `rgb(${shade},${shade - 3},${shade - 12})`;
+      g.fillRect(col * 64 + off + 2, row * 64 + 2, 60, 60);
+    }
+  }
+  g.strokeStyle = 'rgba(70,66,58,0.55)';
+  g.lineWidth = 2;
+  for (let i = 0; i <= 4; i++) {
+    g.beginPath(); g.moveTo(0, i * 64); g.lineTo(s, i * 64); g.stroke();
+    g.beginPath(); g.moveTo(i * 64, 0); g.lineTo(i * 64, s); g.stroke();
+  }
+  speckle(g, s, 1500, 0.06);
+  return c;
+}
+
+// Soft radial blob, used for the sun glow, clouds and particles.
+function softCanvas() {
+  const s = 128;
+  const c = blankCanvas(s);
+  const g = c.getContext('2d');
+  const grad = g.createRadialGradient(s / 2, s / 2, 2, s / 2, s / 2, s / 2);
+  grad.addColorStop(0, 'rgba(255,255,255,1)');
+  grad.addColorStop(0.4, 'rgba(255,255,255,0.6)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, s, s);
+  return c;
+}
+
+const stoneTex = canvasTexture(stoneCanvas(154), 2, 1);
+const stoneDarkTex = canvasTexture(stoneCanvas(120), 1, 1);
+const grassTex = canvasTexture(grassCanvas(), 26, 26);
+const woodTex = canvasTexture(woodCanvas(), 1, 1);
+const roofTex = canvasTexture(roofCanvas(), 2, 2);
+const dirtTex = canvasTexture(dirtCanvas(), 1, 5);
+const slabTex = canvasTexture(slabCanvas(), 3, 3);
+const softTex = canvasTexture(softCanvas());
+
+// Gradient sky: a vertical gradient texture used as the scene background.
+{
+  const c = document.createElement('canvas');
+  c.width = 32;
+  c.height = 512;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, 0, 512);
+  grad.addColorStop(0, '#4f8fd0');
+  grad.addColorStop(0.45, '#8ab8e2');
+  grad.addColorStop(0.72, '#cfe3f2');
+  grad.addColorStop(1, '#eef4f6');
+  g.fillStyle = grad;
+  g.fillRect(0, 0, 32, 512);
+  const skyTex = new THREE.CanvasTexture(c);
+  skyTex.colorSpace = THREE.SRGBColorSpace;
+  skyTex.mapping = THREE.EquirectangularReflectionMapping;
+  scene.background = skyTex;
+}
+
+// Sun disc + glow, and slow drifting clouds.
+const sunSprite = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: softTex, color: 0xfff3c4, fog: false, depthWrite: false,
+}));
+sunSprite.position.set(150, 215, 95);
+sunSprite.scale.set(70, 70, 1);
+scene.add(sunSprite);
+const sunGlow = new THREE.Sprite(new THREE.SpriteMaterial({
+  map: softTex, color: 0xffe9a8, fog: false, depthWrite: false, transparent: true, opacity: 0.4,
+}));
+sunGlow.position.copy(sunSprite.position);
+sunGlow.scale.set(170, 170, 1);
+scene.add(sunGlow);
+
+const clouds = [];
+for (let i = 0; i < 6; i++) {
+  const cloud = new THREE.Sprite(new THREE.SpriteMaterial({
+    map: softTex, color: 0xffffff, fog: false, depthWrite: false, transparent: true, opacity: 0.75,
+  }));
+  const a = (i / 6) * Math.PI * 2 + 0.4;
+  const r = 90 + (i % 3) * 45;
+  cloud.position.set(Math.cos(a) * r, 62 + (i % 3) * 14, Math.sin(a) * r);
+  const cs = 42 + (i % 3) * 16;
+  cloud.scale.set(cs, cs * 0.42, 1);
+  cloud.userData.drift = 0.4 + (i % 3) * 0.25;
+  scene.add(cloud);
+  clouds.push(cloud);
+}
+
+// ---------------------------------------------------------------------------
 // Lighting
 // ---------------------------------------------------------------------------
-const hemi = new THREE.HemisphereLight(0xbfd9ff, 0x6a8f5f, 0.95);
+const hemi = new THREE.HemisphereLight(0xcfe4ff, 0x8a7a5f, 0.85);
 scene.add(hemi);
 
-const sun = new THREE.DirectionalLight(0xffe0b3, 1.7);
+const sun = new THREE.DirectionalLight(0xffd9a0, 2.0);
 sun.position.set(45, 65, 28);
 sun.castShadow = true;
 sun.shadow.mapSize.set(2048, 2048);
@@ -230,7 +479,7 @@ groundGeo.rotateX(-Math.PI / 2);
 }
 const ground = new THREE.Mesh(
   groundGeo,
-  new THREE.MeshStandardMaterial({ color: 0x5f9150, roughness: 1 }),
+  new THREE.MeshStandardMaterial({ map: grassTex, color: 0xffffff, roughness: 1 }),
 );
 ground.receiveShadow = true;
 scene.add(ground);
@@ -245,7 +494,7 @@ scene.add(grid);
 // Stone courtyard disc inside the walls.
 const courtyard = new THREE.Mesh(
   new THREE.CircleGeometry(13, 40),
-  new THREE.MeshStandardMaterial({ color: 0x8f8a7c, roughness: 1 }),
+  new THREE.MeshStandardMaterial({ map: slabTex, color: 0xffffff, roughness: 1 }),
 );
 courtyard.rotation.x = -Math.PI / 2;
 courtyard.position.y = 0.03;
@@ -255,7 +504,7 @@ scene.add(courtyard);
 // Dirt path from the gate (south side) out into the fields.
 const path = new THREE.Mesh(
   new THREE.PlaneGeometry(4.5, 30),
-  new THREE.MeshStandardMaterial({ color: 0xa68a5e, roughness: 1 }),
+  new THREE.MeshStandardMaterial({ map: dirtTex, color: 0xffffff, roughness: 1 }),
 );
 path.rotation.x = -Math.PI / 2;
 path.position.set(0, 0.05, 33);
@@ -266,15 +515,18 @@ scene.add(path);
 // Shared materials and small builders
 // ---------------------------------------------------------------------------
 const stoneMat = new THREE.MeshStandardMaterial({
-  color: 0x9b9a90,
+  map: stoneTex,
+  color: 0xffffff,
   roughness: 0.95,
 });
 const stoneDarkMat = new THREE.MeshStandardMaterial({
-  color: 0x83827a,
+  map: stoneDarkTex,
+  color: 0xffffff,
   roughness: 0.95,
 });
 const woodMat = new THREE.MeshStandardMaterial({
-  color: 0x8a6134,
+  map: woodTex,
+  color: 0xffffff,
   roughness: 0.9,
 });
 const darkMat = new THREE.MeshStandardMaterial({
@@ -300,22 +552,37 @@ function cylinder(rt, rb, h, mat, x, y, z, parent = scene, segments = 16) {
   return m;
 }
 
-// Crenellations (merlons) along a wall running in X.
+// Crenellations (merlons) along a wall running in X. Merged into one mesh
+// per wall so the many small blocks cost a single draw call, not one each.
 function addMerlonsX(parent, cx, topY, length, z, mat = stoneMat) {
   const n = Math.max(1, Math.floor(length / 1.4));
+  const geos = [];
   for (let i = 0; i < n; i++) {
     const x = cx - length / 2 + (i + 0.5) * (length / n);
-    box(0.7, 0.6, 1.5, mat, x, topY + 0.3, z, parent);
+    const geo = new THREE.BoxGeometry(0.7, 0.6, 1.5);
+    geo.translate(x, topY + 0.3, z);
+    geos.push(geo);
   }
+  const m = new THREE.Mesh(mergeGeometries(geos), mat);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
 }
 
-// Crenellations along a wall running in Z.
+// Crenellations along a wall running in Z, merged the same way.
 function addMerlonsZ(parent, cz, topY, length, x, mat = stoneMat) {
   const n = Math.max(1, Math.floor(length / 1.4));
+  const geos = [];
   for (let i = 0; i < n; i++) {
     const z = cz - length / 2 + (i + 0.5) * (length / n);
-    box(1.5, 0.6, 0.7, mat, x, topY + 0.3, z, parent);
+    const geo = new THREE.BoxGeometry(1.5, 0.6, 0.7);
+    geo.translate(x, topY + 0.3, z);
+    geos.push(geo);
   }
+  const m = new THREE.Mesh(mergeGeometries(geos), mat);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
 }
 
 // ---------------------------------------------------------------------------
@@ -405,6 +672,20 @@ const flag = new THREE.Mesh(
 flag.position.set(0.12, 19.4, 0);
 flag.castShadow = true;
 keep.add(flag);
+// Red banners hanging from the keep's top slab, with a gold trim.
+const bannerMat = new THREE.MeshStandardMaterial({ color: 0xa32a22, roughness: 0.85, side: THREE.DoubleSide });
+const bannerGoldMat = new THREE.MeshStandardMaterial({ color: 0xd9a441, roughness: 0.6 });
+const banners = [];
+for (const bx of [-2.2, 2.2]) {
+  const b = new THREE.Mesh(new THREE.PlaneGeometry(1.4, 3.2), bannerMat);
+  b.position.set(bx, 13.4, 4.06);
+  b.castShadow = true;
+  keep.add(b);
+  const trim = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.25, 0.06), bannerGoldMat);
+  trim.position.set(bx, 11.85, 4.06);
+  keep.add(trim);
+  banners.push(b);
+}
 scene.add(keep);
 makeSelectable(keep, 'Stone Keep');
 
@@ -444,6 +725,39 @@ box(5.6, 4.6, 0.3, new THREE.MeshStandardMaterial({ color: 0x6e4a22, roughness: 
 scene.add(gate);
 makeSelectable(gate, 'Gatehouse');
 
+// Torches flanking the gate, with flickering flames. One shared point light
+// between them keeps the lighting cheap on weak hardware.
+const torchLights = [];
+const torchFlames = [];
+for (const tx of [-4.8, 4.8]) {
+  const post = new THREE.Mesh(new THREE.CylinderGeometry(0.09, 0.13, 1.5, 8), darkMat);
+  post.position.set(tx, 0.75, HALF + 0.9);
+  post.castShadow = true;
+  scene.add(post);
+  const cup = new THREE.Mesh(new THREE.CylinderGeometry(0.2, 0.12, 0.3, 8), darkMat);
+  cup.position.set(tx, 1.6, HALF + 0.9);
+  scene.add(cup);
+  const flame = new THREE.Mesh(
+    new THREE.ConeGeometry(0.22, 0.65, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffa63d }),
+  );
+  flame.position.set(tx, 2.05, HALF + 0.9);
+  scene.add(flame);
+  const flameCore = new THREE.Mesh(
+    new THREE.ConeGeometry(0.11, 0.4, 8),
+    new THREE.MeshBasicMaterial({ color: 0xffe08a }),
+  );
+  flameCore.position.set(tx, 2.0, HALF + 0.9);
+  scene.add(flameCore);
+  torchFlames.push(flame, flameCore);
+}
+{
+  const light = new THREE.PointLight(0xff9a3d, 16, 20, 1.6);
+  light.position.set(0, 2.6, HALF + 1.2);
+  scene.add(light);
+  torchLights.push({ light, phase: 0 });
+}
+
 // Corner towers: cylinders with a cap ring and merlons. They shoot arrows
 // during waves, so each one registers in the towers list.
 function cornerTower(x, z) {
@@ -454,6 +768,23 @@ function cornerTower(x, z) {
     const a = (i / 8) * Math.PI * 2;
     box(0.7, 0.6, 0.7, stoneMat, x + Math.cos(a) * 2.4, 8.25, z + Math.sin(a) * 2.4, g);
   }
+  // Small red pennant on a pole above the tower.
+  const pole = new THREE.Mesh(new THREE.CylinderGeometry(0.07, 0.07, 2.2, 6), woodMat);
+  pole.position.set(x, 9.2, z);
+  pole.castShadow = true;
+  g.add(pole);
+  const penShape = new THREE.Shape();
+  penShape.moveTo(0, 0);
+  penShape.lineTo(1.6, 0.4);
+  penShape.lineTo(0, 0.8);
+  penShape.lineTo(0, 0);
+  const pen = new THREE.Mesh(
+    new THREE.ShapeGeometry(penShape),
+    new THREE.MeshStandardMaterial({ color: 0xd23b2e, side: THREE.DoubleSide, roughness: 0.8 }),
+  );
+  pen.position.set(x + 0.07, 9.9, z);
+  pen.castShadow = true;
+  g.add(pen);
   scene.add(g);
   makeSelectable(g, 'Corner Tower');
   towers.push({ pos: new THREE.Vector3(x, 8, z), cooldown: 0 });
@@ -471,6 +802,11 @@ const houseColors = [0xd9a066, 0xc98f5f, 0xe0b070, 0xb98a5a, 0xdba47a, 0xcf9a68]
 const roofColors = [0x8a4b2d, 0x7a3b22, 0x96482a, 0x6e3a24, 0x8a4026, 0x7d3f28];
 let houseColorIdx = 6; // Phase 1 village used indices 0-5
 
+const windowLitMat = new THREE.MeshStandardMaterial({
+  color: 0xffc46b, emissive: 0xff9d2e, emissiveIntensity: 0.65, roughness: 0.6,
+});
+const chimneys = []; // world positions of chimney tops, for smoke particles
+
 function house(x, z, i) {
   const g = new THREE.Group();
   const wallMat = new THREE.MeshStandardMaterial({
@@ -478,7 +814,8 @@ function house(x, z, i) {
     roughness: 0.9,
   });
   const roofMat = new THREE.MeshStandardMaterial({
-    color: roofColors[i % roofColors.length],
+    map: roofTex,
+    color: 0xffffff,
     roughness: 0.95,
   });
   const y = terrainHeight(x, z);
@@ -490,6 +827,11 @@ function house(x, z, i) {
   roof.receiveShadow = true;
   g.add(roof);
   box(1, 1.8, 0.2, darkMat, x, y + 0.9, z + 2.05, g); // door
+  // Chimney on the roof, and warm lit windows on the front.
+  box(0.7, 1.8, 0.7, stoneDarkMat, x + 1.4, y + 4.9, z - 1, g);
+  chimneys.push(new THREE.Vector3(x + 1.4, y + 5.9, z - 1));
+  box(0.8, 1, 0.2, windowLitMat, x - 1.2, y + 1.7, z + 2.05, g);
+  box(0.8, 1, 0.2, windowLitMat, x + 1.2, y + 1.7, z + 2.05, g);
   scene.add(g);
   makeSelectable(g, 'House');
   return g;
@@ -507,22 +849,44 @@ const treeSpots = [
   [44, 26], [-44, 34], [14, -42], [-12, 46], [58, 12],
 ];
 
-function tree(x, z, s) {
+function tree(x, z, s, i) {
   const g = new THREE.Group();
   const y = terrainHeight(x, z);
   const trunkMat = new THREE.MeshStandardMaterial({ color: 0x6e4a22, roughness: 1 });
-  const leafMat = new THREE.MeshStandardMaterial({ color: 0x3f7a33, roughness: 1 });
-  cylinder(0.28 * s, 0.36 * s, 1.8 * s, trunkMat, x, y + 0.9 * s, z, g, 8);
-  const cone = new THREE.Mesh(new THREE.ConeGeometry(1.9 * s, 3.6 * s, 8), leafMat);
-  cone.position.set(x, y + 3.4 * s, z);
-  cone.castShadow = true;
-  cone.receiveShadow = true;
-  g.add(cone);
+  if (i % 2 === 0) {
+    // Pine: stacked cones.
+    cylinder(0.28 * s, 0.36 * s, 1.8 * s, trunkMat, x, y + 0.9 * s, z, g, 8);
+    const pineMat = new THREE.MeshStandardMaterial({ color: 0x2e6b2f, roughness: 1 });
+    for (let k = 0; k < 3; k++) {
+      const cone = new THREE.Mesh(
+        new THREE.ConeGeometry((1.9 - k * 0.45) * s, 2.2 * s, 8),
+        pineMat,
+      );
+      cone.position.set(x, y + (2.6 + k * 1.5) * s, z);
+      cone.castShadow = true;
+      cone.receiveShadow = true;
+      g.add(cone);
+    }
+  } else {
+    // Broadleaf: trunk with a cluster of leafy blobs.
+    cylinder(0.3 * s, 0.4 * s, 2.6 * s, trunkMat, x, y + 1.3 * s, z, g, 8);
+    const leafMat = new THREE.MeshStandardMaterial({ color: 0x4d8a33, roughness: 1 });
+    const blobs = [
+      [0, 3.4, 0, 1.7], [-1, 2.8, 0.4, 1.1], [1, 2.9, -0.3, 1.2], [0.2, 4.1, -0.2, 1.1],
+    ];
+    for (const [bx, by, bz, br] of blobs) {
+      const blob = new THREE.Mesh(new THREE.IcosahedronGeometry(br * s, 0), leafMat);
+      blob.position.set(x + bx * s, y + by * s, z + bz * s);
+      blob.castShadow = true;
+      blob.receiveShadow = true;
+      g.add(blob);
+    }
+  }
   scene.add(g);
   makeSelectable(g, 'Tree');
   return g;
 }
-treeSpots.forEach(([x, z], i) => tree(x, z, 0.85 + (i % 4) * 0.15));
+treeSpots.forEach(([x, z], i) => tree(x, z, 0.85 + (i % 4) * 0.15, i));
 
 const rockSpots = [
   [-52, -22, 1.4], [52, 34, 1.1], [-8, -52, 1.7], [20, 52, 1.2], [-58, 2, 1.0],
@@ -791,6 +1155,109 @@ function placeAt(kind, x, z) {
 }
 
 // ---------------------------------------------------------------------------
+// Particles: arrow trails, hit sparks, chimney smoke, enemy dust
+// One THREE.Points draw call, capped at 400 live particles, updated on CPU.
+// ---------------------------------------------------------------------------
+const P_MAX = 400;
+const pGeo = new THREE.BufferGeometry();
+const pPos = new Float32Array(P_MAX * 3);
+const pCol = new Float32Array(P_MAX * 3);
+const pSize = new Float32Array(P_MAX);
+const pAlpha = new Float32Array(P_MAX);
+pGeo.setAttribute('position', new THREE.BufferAttribute(pPos, 3));
+pGeo.setAttribute('aColor', new THREE.BufferAttribute(pCol, 3));
+pGeo.setAttribute('aSize', new THREE.BufferAttribute(pSize, 1));
+pGeo.setAttribute('aAlpha', new THREE.BufferAttribute(pAlpha, 1));
+const pMat = new THREE.ShaderMaterial({
+  uniforms: { uTex: { value: softTex } },
+  vertexShader: `
+    attribute vec3 aColor;
+    attribute float aSize;
+    attribute float aAlpha;
+    varying vec3 vColor;
+    varying float vAlpha;
+    void main() {
+      vColor = aColor;
+      vAlpha = aAlpha;
+      vec4 mv = modelViewMatrix * vec4(position, 1.0);
+      gl_PointSize = aSize * 260.0 / max(1.0, -mv.z);
+      gl_Position = projectionMatrix * mv;
+    }`,
+  fragmentShader: `
+    uniform sampler2D uTex;
+    varying vec3 vColor;
+    varying float vAlpha;
+    void main() {
+      vec4 tex = texture2D(uTex, gl_PointCoord);
+      float a = tex.a * vAlpha;
+      if (a < 0.02) discard;
+      gl_FragColor = vec4(vColor, a);
+    }`,
+  transparent: true,
+  depthWrite: false,
+});
+const pPoints = new THREE.Points(pGeo, pMat);
+pPoints.frustumCulled = false;
+scene.add(pPoints);
+
+const parts = []; // {x,y,z,vx,vy,vz,life,max,size,r,g,b,grav,grow,peak}
+
+function spawnParticle(o) {
+  if (parts.length >= P_MAX) return;
+  parts.push({
+    x: o.x, y: o.y, z: o.z,
+    vx: o.vx || 0, vy: o.vy || 0, vz: o.vz || 0,
+    life: 0, max: o.life || 1,
+    size: o.size || 1,
+    r: o.r ?? 1, g: o.g ?? 1, b: o.b ?? 1,
+    grav: o.grav || 0, grow: o.grow || 0, peak: o.peak ?? 0.5,
+  });
+}
+
+function burstSparks(x, y, z) {
+  for (let i = 0; i < 7; i++) {
+    const a = Math.random() * Math.PI * 2;
+    const sp = 2 + Math.random() * 5;
+    spawnParticle({
+      x, y, z,
+      vx: Math.cos(a) * sp, vy: 1 + Math.random() * 3, vz: Math.sin(a) * sp,
+      life: 0.3 + Math.random() * 0.15, size: 0.32,
+      r: 1, g: 0.62, b: 0.15, grav: -7,
+    });
+  }
+}
+
+function updateParticles(delta) {
+  for (let i = parts.length - 1; i >= 0; i--) {
+    const p = parts[i];
+    p.life += delta;
+    if (p.life >= p.max) {
+      parts.splice(i, 1);
+      continue;
+    }
+    p.vy += p.grav * delta;
+    p.x += p.vx * delta;
+    p.y += p.vy * delta;
+    p.z += p.vz * delta;
+  }
+  for (let i = 0; i < parts.length; i++) {
+    const p = parts[i];
+    const t = p.life / p.max;
+    const a = t < 0.15 ? t / 0.15 : 1 - (t - 0.15) / 0.85;
+    const idx = i * 3;
+    pPos[idx] = p.x; pPos[idx + 1] = p.y; pPos[idx + 2] = p.z;
+    pCol[idx] = p.r; pCol[idx + 1] = p.g; pCol[idx + 2] = p.b;
+    pSize[i] = p.size * (1 + p.grow * t);
+    pAlpha[i] = Math.max(0, a) * p.peak;
+  }
+  pGeo.setDrawRange(0, parts.length);
+  pGeo.attributes.position.needsUpdate = true;
+  pGeo.attributes.aColor.needsUpdate = true;
+  pGeo.attributes.aSize.needsUpdate = true;
+  pGeo.attributes.aAlpha.needsUpdate = true;
+}
+
+// ---------------------------------------------------------------------------
 // Enemy waves
 // ---------------------------------------------------------------------------
 const waveBtn = document.getElementById('btn-next-wave');
@@ -932,6 +1399,7 @@ function updateArrows(delta) {
     if (dist < 1.4) {
       scene.remove(a.mesh);
       arrows.splice(i, 1);
+      burstSparks(tp.x, tp.y + 1.2, tp.z);
       target.hp -= 1;
       if (target.hp <= 0) {
         const idx = enemies.indexOf(target);
@@ -945,6 +1413,13 @@ function updateArrows(delta) {
     dir.normalize();
     a.mesh.position.addScaledVector(dir, ARROW_SPEED * delta);
     a.mesh.lookAt(dest);
+    a.frame = (a.frame || 0) + 1;
+    if (a.frame % 3 === 0) {
+      spawnParticle({
+        x: a.mesh.position.x, y: a.mesh.position.y, z: a.mesh.position.z,
+        life: 0.22, size: 0.35, r: 0.85, g: 0.75, b: 0.55, peak: 0.45,
+      });
+    }
   }
 }
 
@@ -972,6 +1447,16 @@ function updateEnemies(delta, elapsed) {
     p.z += (dz / d) * step;
     p.y = terrainHeight(p.x, p.z) + Math.abs(Math.sin(elapsed * 6 + e.phase)) * 0.12;
     e.group.rotation.y = Math.atan2(dx, dz);
+    // Dust puffs at the enemy's feet while it marches.
+    e.dust = (e.dust || 0) + delta;
+    if (e.dust > 0.4) {
+      e.dust = 0;
+      spawnParticle({
+        x: p.x, y: p.y + 0.15, z: p.z,
+        vx: (Math.random() - 0.5) * 0.4, vy: 0.35, vz: (Math.random() - 0.5) * 0.4,
+        life: 0.7, size: 0.7, r: 0.62, g: 0.55, b: 0.42, grow: 1.2, peak: 0.3,
+      });
+    }
   }
 }
 
@@ -1386,6 +1871,8 @@ window.addEventListener('resize', () => {
 const clock = new THREE.Clock();
 let elapsed = 0;
 let incomeTimer = 0;
+let smokeTimer = 0;
+let smokeIdx = 0;
 
 function animate() {
   requestAnimationFrame(animate);
@@ -1393,6 +1880,40 @@ function animate() {
   elapsed += delta;
   // Gentle flag wave.
   flag.rotation.y = Math.sin(elapsed * 2.2) * 0.18;
+  // Torch flames flicker.
+  for (const t of torchLights) {
+    t.light.intensity = 13 + Math.sin(elapsed * 11 + t.phase) * 2 + Math.sin(elapsed * 23 + t.phase * 2) * 1;
+  }
+  for (let i = 0; i < torchFlames.length; i++) {
+    const f = torchFlames[i];
+    f.scale.set(
+      1 + Math.sin(elapsed * 13 + i * 1.7) * 0.12,
+      1 + Math.sin(elapsed * 17 + i) * 0.15,
+      1 + Math.sin(elapsed * 13 + i * 1.7) * 0.12,
+    );
+  }
+  // Clouds drift across the sky.
+  for (const cloud of clouds) {
+    cloud.position.x += cloud.userData.drift * delta;
+    if (cloud.position.x > 170) cloud.position.x = -170;
+  }
+  // Banners sway gently.
+  for (let i = 0; i < banners.length; i++) {
+    banners[i].rotation.x = Math.sin(elapsed * 1.3 + i * 1.2) * 0.05;
+  }
+  // Chimney smoke: one slow puff at a time, round-robin through chimneys.
+  smokeTimer += delta;
+  if (smokeTimer >= 0.55 && chimneys.length > 0) {
+    smokeTimer = 0;
+    const c = chimneys[smokeIdx % chimneys.length];
+    smokeIdx += 1;
+    spawnParticle({
+      x: c.x, y: c.y, z: c.z,
+      vx: 0.25 + Math.random() * 0.2, vy: 1.1 + Math.random() * 0.4, vz: 0.1,
+      life: 2.6, size: 0.8, r: 0.72, g: 0.72, b: 0.72, grow: 2.2, peak: 0.32,
+    });
+  }
+  updateParticles(delta);
   // Economy tick every 5 seconds. Paused while the Continue / New Game
   // overlay is up so resources do not grow before the player chooses.
   incomeTimer += delta;
@@ -1451,6 +1972,11 @@ window.__castle = {
     poolState: (name) => (soundPools[name] || { elements: [] }).elements.map(
       (el) => ({ paused: el.paused, time: el.currentTime, src: el.currentSrc.split('/').pop() }),
     ),
+  },
+  fx: {
+    particles: () => parts.length,
+    clouds: () => clouds.length,
+    chimneys: () => chimneys.length,
   },
 };
 

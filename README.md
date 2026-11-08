@@ -52,24 +52,14 @@ Deploy the `dist/` folder as a static site (for example a Render static site).
 
 ## Leaderboard API
 
-The game talks to a small Node/Express API in `server/` (deployed as a
-free Render web service at https://castle-siege-3d-api.onrender.com).
-Endpoints: `GET /health`, `GET /api/scores?limit=10`, `POST /api/scores`
-with `{ "name", "waves", "kills", "gold" }`. Names are sanitised,
-numbers are validated, and submissions are rate limited (10 per IP per
-minute). Scores live in a free Render PostgreSQL database when
-`DATABASE_URL` is set; without it the API falls back to a JSON file
-(`server/data/scores.json`), which keeps the API working but is not
-durable across restarts on the free tier.
-
-Free tier notes: the web service sleeps after 15 minutes without traffic,
-so the first leaderboard load can take 30 to 60 seconds while it wakes
-up. The free PostgreSQL database expires after about 90 days and its
-data is deleted then; keeping scores past that needs the $7/month
-Starter database, or recreating the free database and starting the
-board over. Run the API locally with `cd server && npm install && npm start`
-(port 3001). The game uses `VITE_LEADERBOARD_API_URL` when set, otherwise
-the Render URL above.
+The game can talk to a small Node/Express API in `server/` (endpoints:
+`GET /health`, `GET /api/scores?limit=10`, `POST /api/scores` with
+`{ "name", "waves", "kills", "gold" }`). The server backend is NOT deployed
+right now, so the game uses its local fallback: scores are saved on the
+player's own device and the panel says so. The game uses
+`VITE_LEADERBOARD_API_URL` when set, otherwise the default Render URL,
+and falls back to local scores whenever the server is unreachable. Run
+the API locally with `cd server && npm install && npm start` (port 3001).
 
 ## Phase plan
 
@@ -87,9 +77,18 @@ the Render URL above.
   (resources, wave, keep HP, placed buildings) saves to localStorage with
   autosave after each cleared wave, a Save button, and a Continue / New
   Game choice on reload. A Node/Express leaderboard API (see "Leaderboard
-  API" above) stores top 10 scores in a free Render PostgreSQL database
-  with a JSON file fallback, and the game shows a local top 10 when the
-  server is unreachable.
+  API" above) stores top 10 scores; the server backend is not deployed,
+  so the game shows the local top 10 saved on the player's device.
+- **Phase 5 (done):** Graphics-first visual upgrade. Procedural canvas
+  textures drawn in code (ashlar stone, grass, wood planks, roof tiles,
+  dirt path, courtyard flagstones), a gradient sky with a sun disc and
+  drifting clouds, warmer sunlight, more detailed models (pine and
+  broadleaf trees, houses with chimneys and lit windows, keep banners,
+  tower pennants, flickering gate torches with one shared point light),
+  and a one-draw-call particle system (arrow trails, hit sparks,
+  chimney smoke, enemy dust). Merlons are merged into one mesh per wall
+  to keep draw calls low. No post-processing, so the game stays fast on
+  weak hardware.
 
 ## Audio credits
 
