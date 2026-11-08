@@ -70,14 +70,32 @@ body {
   color: #ffd34d;
 }
 
+/* Bottom bar: one full-width bar across the whole screen. Buttons on
+the left, wave status in the middle, hint on the right. The bar itself
+lets mouse drags pass through (only the buttons take clicks), so the
+empty parts of the bar never block orbiting the camera. */
 #actions {
-  bottom: 14px;
-  left: 14px;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14px;
+  max-width: none;
+  padding: 10px 14px;
+  border-radius: 0;
+  border-left: none;
+  border-right: none;
+  border-bottom: none;
+  pointer-events: none;
+}
+
+#action-buttons {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 10px;
-  max-width: 640px;
 }
 
 #actions button {
@@ -144,9 +162,11 @@ body {
 }
 
 #wave-status {
+  flex: 1 1 auto;
   margin: 0;
   font-size: 13px;
   color: #d8cfae;
+  text-align: center;
 }
 
 /* Keep HP bar in the resources panel */
@@ -227,8 +247,7 @@ body {
 }
 
 #hint {
-  bottom: 14px;
-  right: 14px;
+  margin: 0 0 0 auto;
   font-size: 13px;
   color: #e8e0c4;
   white-space: nowrap;
