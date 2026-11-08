@@ -246,6 +246,279 @@ empty parts of the bar never block orbiting the camera. */
   background: #ffdf7a;
 }
 
+/* Shared end-of-game stats grid (victory and game over) */
+.end-stats {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px 28px;
+  margin: 0 0 20px;
+  text-align: left;
+  font-size: 14px;
+}
+
+.end-stats div {
+  display: flex;
+  justify-content: space-between;
+  gap: 12px;
+  border-bottom: 1px solid rgba(243, 234, 210, 0.18);
+  padding-bottom: 4px;
+}
+
+.end-stats span {
+  color: #d8cfae;
+}
+
+.end-stats b {
+  color: #ffd34d;
+}
+
+/* Start screen overlay: the 3D scene renders behind it */
+#start-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 6, 0.6);
+  padding: 16px;
+}
+
+#start-overlay.hidden {
+  display: none;
+}
+
+.start-box {
+  text-align: center;
+  background: rgba(20, 26, 20, 0.94);
+  color: #f3ead2;
+  border: 1px solid rgba(243, 234, 210, 0.4);
+  border-radius: 10px;
+  padding: 32px 44px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+  max-width: 520px;
+}
+
+.start-box h1 {
+  margin: 0 0 8px;
+  font-size: 40px;
+  color: #ffd34d;
+}
+
+.start-tag {
+  margin: 0 0 16px;
+  font-size: 16px;
+  font-style: italic;
+  color: #d8cfae;
+}
+
+.start-howto {
+  margin: 0 0 22px;
+  font-size: 15px;
+  text-align: left;
+}
+
+.start-howto p {
+  margin: 6px 0;
+}
+
+#btn-start {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 18px;
+  font-weight: bold;
+  color: #1c2416;
+  background: #ffd34d;
+  border: none;
+  border-radius: 6px;
+  padding: 12px 34px;
+}
+
+#btn-start:hover {
+  background: #ffdf7a;
+}
+
+.link-btn {
+  display: block;
+  margin: 14px auto 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 14px;
+  color: #ffd34d;
+  background: none;
+  border: none;
+  text-decoration: underline;
+}
+
+.link-btn:hover {
+  color: #ffdf7a;
+}
+
+/* Victory overlay: same frame as the game over box, gold heading */
+#victory-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 6, 0.72);
+}
+
+#victory-overlay.hidden {
+  display: none;
+}
+
+.victory-box {
+  text-align: center;
+  background: rgba(20, 26, 20, 0.92);
+  color: #f3ead2;
+  border: 1px solid rgba(243, 234, 210, 0.4);
+  border-radius: 10px;
+  padding: 28px 40px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.victory-box h2 {
+  margin: 0 0 8px;
+  font-size: 28px;
+  color: #ffd34d;
+}
+
+.victory-box p {
+  margin: 0 0 18px;
+  font-size: 15px;
+}
+
+.victory-box button {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: bold;
+  color: #1c2416;
+  background: #ffd34d;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 22px;
+}
+
+.victory-box button:hover {
+  background: #ffdf7a;
+}
+
+/* How to Play overlay */
+#howto-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(10, 8, 6, 0.88);
+  padding: 16px;
+}
+
+#howto-overlay.hidden {
+  display: none;
+}
+
+.howto-box {
+  width: min(560px, 94vw);
+  max-height: 88vh;
+  overflow-y: auto;
+  background: rgba(20, 26, 20, 0.96);
+  color: #f3ead2;
+  border: 1px solid rgba(243, 234, 210, 0.4);
+  border-radius: 10px;
+  padding: 20px 24px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.5);
+}
+
+.howto-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.howto-header h2 {
+  margin: 0;
+  font-size: 24px;
+  color: #ffd34d;
+}
+
+#btn-howto-close {
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 26px;
+  line-height: 1;
+  color: #f3ead2;
+  background: none;
+  border: none;
+  padding: 0 2px;
+}
+
+#btn-howto-close:hover {
+  color: #ffd34d;
+}
+
+.howto-box h3 {
+  margin: 16px 0 4px;
+  font-size: 15px;
+  color: #ffd34d;
+}
+
+.howto-box p {
+  margin: 4px 0;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+.howto-box ul {
+  margin: 4px 0;
+  padding-left: 20px;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.howto-box b {
+  color: #ffd34d;
+}
+
+.howto-tip {
+  font-style: italic;
+  color: #d8cfae;
+}
+
+#btn-howto-close-2 {
+  display: block;
+  margin: 18px auto 0;
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 16px;
+  font-weight: bold;
+  color: #1c2416;
+  background: #ffd34d;
+  border: none;
+  border-radius: 6px;
+  padding: 10px 22px;
+}
+
+#btn-howto-close-2:hover {
+  background: #ffdf7a;
+}
+
+/* "?" mark on the Help button in the bottom bar */
+#actions .icon-btn .howto-mark {
+  display: block;
+  width: 26px;
+  height: 26px;
+  font-size: 22px;
+  font-weight: bold;
+  line-height: 26px;
+  text-align: center;
+}
+
 #hint {
   margin: 0 0 0 auto;
   font-size: 13px;

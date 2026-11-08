@@ -68,6 +68,10 @@
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9v6h4l5 4V5L8 9H4z" fill="currentColor" stroke="none"/><path class="snd-waves" d="M16 9c1.2 1 1.2 5 0 6M18.5 7c2 1.8 2 8.2 0 10"/><path class="snd-slash" d="M3 3l18 18"/></svg>
           <span class="btn-label" id="sound-label">On</span>
         </button>
+        <button id="btn-howto" class="icon-btn" title="How to Play" aria-label="How to Play">
+          <span class="howto-mark">?</span>
+          <span class="btn-label">Help</span>
+        </button>
         </div>
         <p id="wave-status">Wave 0, no enemies yet</p>
         <p id="hint">Drag to orbit, scroll to zoom, right-drag or WASD / arrow keys to move, click the King to select him, M mutes sound</p>
@@ -114,10 +118,76 @@
       </div>
     </div>
 
+    <div id="start-overlay">
+      <div class="start-box">
+        <h1>Castle Siege 3D</h1>
+        <p class="start-tag">Build your kingdom by solving code challenges, then defend the keep.</p>
+        <div class="start-howto">
+          <p>Every building and soldier costs one solved code challenge.</p>
+          <p>Defend the keep through 10 waves of enemies to win.</p>
+          <p>Drag to orbit, scroll to zoom, right-drag or WASD to move, click the King to select him.</p>
+        </div>
+        <button id="btn-start" type="button">Start game</button>
+        <button id="btn-start-howto" type="button" class="link-btn">How to Play</button>
+      </div>
+    </div>
+
+    <div id="howto-overlay" class="hidden">
+      <div class="howto-box">
+        <div class="howto-header">
+          <h2>How to Play</h2>
+          <button id="btn-howto-close" type="button" aria-label="Close How to Play">×</button>
+        </div>
+        <h3>Challenges</h3>
+        <p>Every building and soldier costs one solved code challenge. Pick a building, solve the code puzzle, then click to place it.</p>
+        <h3>Build</h3>
+        <p>Click a build button, solve the challenge, then click open ground inside the build ring to place the building. With the Wall tool, drag to build a whole wall line.</p>
+        <h3>Buildings</h3>
+        <ul>
+          <li><b>Wall:</b> blocks enemies and soaks up attacks.</li>
+          <li><b>House:</b> raises the population cap and pays gold tax.</li>
+          <li><b>Farm:</b> grows food income.</li>
+          <li><b>Tower:</b> shoots arrows at nearby enemies during waves.</li>
+          <li><b>Factory:</b> raises stone income.</li>
+          <li><b>Barracks:</b> unlocks soldier training and raises the army cap.</li>
+        </ul>
+        <h3>Waves</h3>
+        <p>Press Next Wave to call the enemy. Clear all 10 waves to win. If the keep falls, the castle is lost.</p>
+        <h3>Controls</h3>
+        <p>Drag to orbit, scroll to zoom, right-drag or WASD / arrow keys to move, click the King to select him and send him walking, M mutes sound.</p>
+        <p class="howto-tip">Tip: build towers behind a wall ring and train soldiers early, so the first waves never reach the keep.</p>
+        <button id="btn-howto-close-2" type="button">Close</button>
+      </div>
+    </div>
+
+    <div id="victory-overlay" class="hidden">
+      <div class="victory-box">
+        <h2>Victory!</h2>
+        <p>The castle stands. All 10 waves are defeated.</p>
+        <div class="end-stats">
+          <div><span>Waves cleared</span><b id="victory-waves">10</b></div>
+          <div><span>Enemies defeated</span><b id="victory-kills">0</b></div>
+          <div><span>Gold earned</span><b id="victory-gold">0</b></div>
+          <div><span>Buildings built</span><b id="victory-buildings">0</b></div>
+          <div><span>Challenges solved</span><b id="victory-challenges">0</b></div>
+          <div><span>Time played</span><b id="victory-time">0:00</b></div>
+        </div>
+        <button id="btn-play-again" type="button">Play again</button>
+      </div>
+    </div>
+
     <div id="fallen-overlay" class="hidden">
       <div class="fallen-box">
         <h2>Castle has fallen</h2>
         <p>The keep was destroyed on wave <span id="fallen-wave">1</span>.</p>
+        <div class="end-stats">
+          <div><span>Waves cleared</span><b id="fallen-waves">0</b></div>
+          <div><span>Enemies defeated</span><b id="fallen-kills">0</b></div>
+          <div><span>Gold earned</span><b id="fallen-gold">0</b></div>
+          <div><span>Buildings built</span><b id="fallen-buildings">0</b></div>
+          <div><span>Challenges solved</span><b id="fallen-challenges">0</b></div>
+          <div><span>Time played</span><b id="fallen-time">0:00</b></div>
+        </div>
         <button id="btn-restart">Restart</button>
       </div>
     </div>

@@ -113,8 +113,8 @@ soundBtn.addEventListener('click', () => {
   toggleMute();
 });
 
-// A click on any HUD or game-over button plays the UI click sound.
-for (const id of ['hud', 'fallen-overlay']) {
+// A click on any HUD or end-screen button plays the UI click sound.
+for (const id of ['hud', 'fallen-overlay', 'victory-overlay', 'start-overlay', 'howto-overlay']) {
   document.getElementById(id).addEventListener('click', (e) => {
     if (e.target.closest('button')) playSound('click');
   });
@@ -139,8 +139,11 @@ const state = {
   waveActive: false,
   keepHp: 100,
   keepMaxHp: 100,
-  kills: 0, // enemies defeated (arrow kills only)
+  kills: 0, // enemies defeated (arrow kills and soldier kills)
   goldEarned: 0, // total gold gained from income ticks and wave rewards
+  buildingsBuilt: 0, // buildings placed by the player (wall segments count)
+  challengesSolved: 0, // code challenges solved (buildings and soldiers)
+  startTime: Date.now(), // when the current game started, for time played
   houseCount: 0, // houses built by the player
   farmCount: 0,
   factoryCount: 0, // factories built by the player
@@ -1324,9 +1327,147 @@ function updateHUD() {
     pct > 50 ? '#58b368' : pct > 25 ? '#e0a53a' : '#d23b2e';
 }
 
-document.getElementById('btn-restart').addEventListener('click', () => {
-  window.location.reload();
-});
+// ---------------------------------------------------------------------------
+// Start screen, How to Play, win screen and game over screen
+// ---------------------------------------------------------------------------
+const startOverlay = document.getElementById('start-overlay');
+const howtoOverlay = document.getElementById('howto-overlay');
+const victoryOverlay = document.getElementById('victory-overlay');
+
+// True while the How to Play overlay is open: the simulation pauses,
+// exactly like it does while the code challenge panel is open.
+let howtoOpen = false;
+// True once the player presses Start: nothing runs before that (no
+// income tick, no waves, enemies do not move). The 3D scene still
+// renders behind the start screen.
+let started = false;
+// True once the game is won or lost: the simulation stops behind the
+// end screen until the player starts a fresh game.
+let gameOver = false;
+
+// One pause rule for the render loop: not started, challenge open,
+// How to Play open, or game over.
+function gamePaused() {
+  return !started || challengeOpen || howtoOpen || gameOver;
+}
+
+function formatTime(ms) {
+  const s = Math.floor(ms / 1000);
+  return Math.floor(s / 60) + ':' + String(s % 60).padStart(2, '0');
+}
+
+function fillEndStats(prefix, wavesCleared) {
+  const set = (id, value) => {
+    const el = document.getElementById(prefix + '-' + id);
+    if (el) el.textContent = value;
+  };
+  set('waves', wavesCleared);
+  set('kills', state.kills);
+  set('gold', state.goldEarned);
+  set('buildings', state.buildingsBuilt);
+  set('challenges', state.challengesSolved);
+  set('time', formatTime(Date.now() - state.startTime));
+}
+
+function startGame() {
+  started = true;
+  gameOver = false;
+  state.startTime = Date.now();
+  startOverlay.classList.add('hidden');
+  setStatus('Wave 0, no enemies yet');
+}
+
+function openHowto() {
+  howtoOpen = true;
+  howtoOverlay.classList.remove('hidden');
+}
+
+function closeHowto() {
+  howtoOpen = false;
+  howtoOverlay.classList.add('hidden');
+}
+
+function showVictory() {
+  gameOver = true;
+  fillEndStats('victory', state.wave);
+  victoryOverlay.classList.remove('hidden');
+  setStatus('Victory! The castle stands.');
+}
+
+// Full reset to a fresh game, in place (no page reload): starting
+// resources, wave 0, no player buildings, no enemies, no soldiers, no
+// arrows, army cap back to base, keep at full HP, HUD updated, all
+// overlays hidden, and the game running again.
+function resetGame() {
+  for (let i = enemies.length - 1; i >= 0; i--) removeEnemy(i);
+  for (const s of soldiers) scene.remove(s.group);
+  soldiers.length = 0;
+  for (const a of arrows) scene.remove(a.mesh);
+  arrows.length = 0;
+  for (const b of [...built]) {
+    const g = buildingGroups.get(b);
+    if (g) {
+      scene.remove(g);
+      const si = selectables.indexOf(g);
+      if (si >= 0) selectables.splice(si, 1);
+      buildingGroups.delete(b);
+    }
+  }
+  built.length = 0;
+  towers.length = 0;
+  chimneys.length = 0;
+  if (selected) deselect();
+  kingTarget = null;
+  king.group.position.set(7.5, terrainHeight(7.5, 7.5), 7.5);
+  king.group.rotation.y = KING_FACE;
+  kingDestMarker.visible = false;
+  ghost.visible = false;
+  wallPreview.visible = false;
+  wallDrag = null;
+  incomeTimer = 0;
+  Object.assign(state, {
+    wood: 100,
+    stone: 80,
+    gold: 50,
+    food: 60,
+    population: 12,
+    popCap: 16,
+    wave: 0,
+    waveActive: false,
+    keepHp: 100,
+    kills: 0,
+    goldEarned: 0,
+    houseCount: 0,
+    farmCount: 0,
+    factoryCount: 0,
+    barracksCount: 0,
+    buildingsBuilt: 0,
+    challengesSolved: 0,
+    startTime: Date.now(),
+    placing: null,
+    removing: false,
+  });
+  gameOver = false;
+  started = true;
+  howtoOpen = false;
+  fallenOverlay.classList.add('hidden');
+  victoryOverlay.classList.add('hidden');
+  howtoOverlay.classList.add('hidden');
+  startOverlay.classList.add('hidden');
+  camera.position.set(56, 42, 56);
+  controls.target.set(0, 2, 0);
+  updateHUD();
+  updateArmyDisplay();
+  setStatus('Wave 0, no enemies yet');
+}
+
+document.getElementById('btn-start').addEventListener('click', startGame);
+document.getElementById('btn-start-howto').addEventListener('click', openHowto);
+document.getElementById('btn-howto').addEventListener('click', openHowto);
+document.getElementById('btn-howto-close').addEventListener('click', closeHowto);
+document.getElementById('btn-howto-close-2').addEventListener('click', closeHowto);
+document.getElementById('btn-play-again').addEventListener('click', resetGame);
+document.getElementById('btn-restart').addEventListener('click', resetGame);
 
 // ---------------------------------------------------------------------------
 // Economy: passive income tick every 5 seconds
@@ -1584,7 +1725,10 @@ function requestBuild(kind) {
     setStatus('Not enough resources');
     return;
   }
-  openChallenge(kind, (solvedKind) => togglePlacing(solvedKind));
+  openChallenge(kind, (solvedKind) => {
+    state.challengesSolved += 1;
+    togglePlacing(solvedKind);
+  });
 }
 
 for (const [kind, btn] of Object.entries(placeBtns)) {
@@ -1622,7 +1766,8 @@ removeBtn.addEventListener('click', toggleRemoving);
 
 window.addEventListener('keydown', (e) => {
   if (e.key === 'Escape') {
-    if (state.placing) cancelPlacing();
+    if (howtoOpen) closeHowto();
+    else if (state.placing) cancelPlacing();
     else if (state.removing) cancelRemoving();
     else if (selected) deselect();
   }
@@ -1665,6 +1810,7 @@ function placeWallAt(x, z) {
   const rec = { kind: 'wall', x: gx, z: gz, angle, hp: BUILDING_HP.wall, maxHp: BUILDING_HP.wall };
   g.userData.builtRec = rec;
   built.push(rec);
+  state.buildingsBuilt += 1;
   buildingGroups.set(rec, g);
   setStatus('Wall built at ' + gx + ', ' + gz);
 }
@@ -1678,6 +1824,7 @@ function placeHouseAt(x, z) {
   const rec = { kind: 'house', x: gx, z: gz, hp: BUILDING_HP.house, maxHp: BUILDING_HP.house };
   g.userData.builtRec = rec;
   built.push(rec);
+  state.buildingsBuilt += 1;
   buildingGroups.set(rec, g);
   setStatus('House built at ' + gx + ', ' + gz + '. Population cap is now ' + state.popCap);
 }
@@ -1698,6 +1845,7 @@ function placeFarmAt(x, z) {
   const rec = { kind: 'farm', x: gx, z: gz, hp: BUILDING_HP.farm, maxHp: BUILDING_HP.farm };
   g.userData.builtRec = rec;
   built.push(rec);
+  state.buildingsBuilt += 1;
   buildingGroups.set(rec, g);
   setStatus('Farm built at ' + gx + ', ' + gz + '. Food income is now +' + (2 + state.farmCount * 2) + ' per tick');
 }
@@ -1718,6 +1866,7 @@ function placeTowerAt(x, z) {
   const rec = { kind: 'tower', x: gx, z: gz, hp: BUILDING_HP.tower, maxHp: BUILDING_HP.tower };
   g.userData.builtRec = rec;
   built.push(rec);
+  state.buildingsBuilt += 1;
   buildingGroups.set(rec, g);
   setStatus('Tower built at ' + gx + ', ' + gz);
 }
@@ -1741,6 +1890,7 @@ function placeFactoryAt(x, z) {
   const rec = { kind: 'factory', x: gx, z: gz, hp: BUILDING_HP.factory, maxHp: BUILDING_HP.factory };
   g.userData.builtRec = rec;
   built.push(rec);
+  state.buildingsBuilt += 1;
   buildingGroups.set(rec, g);
   setStatus('Factory built at ' + gx + ', ' + gz + '. Stone income is now +' + (1 + state.factoryCount * 2) + ' per tick');
 }
@@ -1776,6 +1926,7 @@ function placeBarracksAt(x, z) {
   const rec = { kind: 'barracks', x: gx, z: gz, hp: BUILDING_HP.barracks, maxHp: BUILDING_HP.barracks };
   g.userData.builtRec = rec;
   built.push(rec);
+  state.buildingsBuilt += 1;
   buildingGroups.set(rec, g);
   updateArmyDisplay();
   setStatus('Barracks built at ' + gx + ', ' + gz + '. Army cap is now ' + armyCap() + ' — soldiers can be trained');
@@ -2562,7 +2713,10 @@ trainBtn.addEventListener('click', () => {
     setStatus('Not enough resources');
     return;
   }
-  openChallenge('soldier', () => trainSoldier());
+  openChallenge('soldier', () => {
+    state.challengesSolved += 1;
+    trainSoldier();
+  });
 });
 
 function killSoldier(s) {
@@ -2605,6 +2759,11 @@ function spawnWave(count) {
 }
 
 waveBtn.addEventListener('click', () => {
+  if (!started || gameOver) return;
+  if (state.wave >= 10) {
+    setStatus('Victory is yours. Press Play again for a new siege.');
+    return;
+  }
   if (state.keepHp <= 0) return;
   if (state.waveActive) {
     setStatus('Wave ' + state.wave + ' is still raging');
@@ -2623,9 +2782,12 @@ function damageKeep(amount) {
   state.keepHp = Math.max(0, state.keepHp - amount);
   updateHUD();
   if (state.keepHp <= 0) {
+    const wavesCleared = state.waveActive ? state.wave - 1 : state.wave;
     state.waveActive = false;
+    gameOver = true;
     playSound('gameover');
     fallenWaveEl.textContent = state.wave;
+    fillEndStats('fallen', wavesCleared);
     fallenOverlay.classList.remove('hidden');
     setStatus('The castle has fallen');
   } else {
@@ -2652,6 +2814,10 @@ function checkWaveEnd() {
     state.goldEarned += 20;
     updateHUD();
     playSound('victory');
+    if (state.wave >= 10) {
+      showVictory();
+      return;
+    }
     setStatus('Wave ' + state.wave + ' cleared! +20 Gold');
   }
 }
@@ -3479,7 +3645,9 @@ let incomeTimer = 0;
 let smokeTimer = 0;
 let smokeIdx = 0;
 // True while the code challenge panel is open: enemy movement, income
-// ticks and tower fire are paused until the panel closes.
+// ticks and tower fire are paused until the panel closes. The loop
+// checks gamePaused() instead, which also covers not started, How to
+// Play open, and game over.
 let challengeOpen = false;
 
 function animate() {
@@ -3554,8 +3722,9 @@ function animate() {
     });
   }
   updateParticles(delta);
-  // Economy tick every 5 seconds, paused while a challenge is open.
-  if (!challengeOpen) {
+  // Economy tick every 5 seconds, paused while the game is paused
+  // (not started, challenge open, How to Play open, or game over).
+  if (!gamePaused()) {
     incomeTimer += delta;
     if (incomeTimer >= 5) {
       incomeTimer -= 5;
@@ -3708,6 +3877,18 @@ window.__castle = {
   openChallenge,
   challengeOpen: () => challengeOpen,
   setChallengeOpen: (value) => { challengeOpen = !!value; },
+  // Start / win / lose screens: started and gameOver flags, the start
+  // and reset flows, and the real damageKeep / checkWaveEnd paths so
+  // automated tests can drive the lose and win screens without a
+  // cheat button in the game itself.
+  started: () => started,
+  gameOver: () => gameOver,
+  howtoOpen: () => howtoOpen,
+  startGame,
+  resetGame,
+  damageKeep,
+  checkWaveEnd,
+  clearEnemies: () => { for (let i = enemies.length - 1; i >= 0; i--) removeEnemy(i); },
   challengeId: () => (getCurrentChallenge() ? getCurrentChallenge().id : null),
   audio: {
     isUnlocked: () => audioUnlocked,
