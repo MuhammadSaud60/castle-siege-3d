@@ -1374,6 +1374,7 @@ function payCost(cost) {
 
 // Ghost preview while placing. Rebuilt per building type.
 const ghost = new THREE.Group();
+scene.add(ghost);
 const ghostMat = new THREE.MeshStandardMaterial({
   color: 0x7ec850,
   transparent: true,
@@ -1566,8 +1567,28 @@ function togglePlacing(kind) {
   }
 }
 
+// Phase 2: a build button no longer enters placement directly. It first
+// checks affordability, then opens the code challenge for that kind; only
+// a solved challenge enters placement mode. The solve grants ONE placement
+// attempt: cancelling placement (Esc or the button again) consumes the
+// grant, and the next click opens a fresh challenge. Resources are still
+// deducted at placement only, in placeAt, never on open or on solve.
+function requestBuild(kind) {
+  if (state.placing === kind) {
+    // Already placing after a solve: the button again cancels placement.
+    cancelPlacing();
+    return;
+  }
+  cancelPlacing();
+  if (!canAfford(COSTS[kind])) {
+    setStatus('Not enough resources');
+    return;
+  }
+  openChallenge(kind, (solvedKind) => togglePlacing(solvedKind));
+}
+
 for (const [kind, btn] of Object.entries(placeBtns)) {
-  btn.addEventListener('click', () => togglePlacing(kind));
+  btn.addEventListener('click', () => requestBuild(kind));
 }
 
 // Demolish tool (Stronghold-style): arm it with the Remove button, then
@@ -2528,7 +2549,20 @@ function trainSoldier() {
 
 trainBtn.addEventListener('click', () => {
   cancelPlacing();
-  trainSoldier();
+  // Phase 2: training needs a solved soldier challenge first. The
+  // barracks gate stays (the button is disabled without one), and the cap
+  // and gold checks run before any challenge opens, so a solved challenge
+  // always trains a soldier. trainSoldier re-checks all three on solve.
+  if (state.barracksCount === 0) return;
+  if (soldiers.length >= armyCap()) {
+    setStatus('The army is at full strength (' + armyCap() + ' soldiers)');
+    return;
+  }
+  if (!canAfford(SOLDIER_COST)) {
+    setStatus('Not enough resources');
+    return;
+  }
+  openChallenge('soldier', () => trainSoldier());
 });
 
 function killSoldier(s) {
@@ -3667,7 +3701,10 @@ window.__castle = {
   incomePerTick,
   // Code challenge panel (Phase 1): openChallenge(kind, onSolved) shows a
   // random variant for the kind and calls onSolved(kind) when the player
-  // solves it and clicks "Place building". The panel pauses the simulation.
+  // solves it and clicks the success button ("Place building" for
+  // buildings, "Train soldier" for the soldier challenge). The panel
+  // pauses the simulation. Phase 2 wires the build buttons and the Train
+  // button through it, with an affordability check before it opens.
   openChallenge,
   challengeOpen: () => challengeOpen,
   setChallengeOpen: (value) => { challengeOpen = !!value; },

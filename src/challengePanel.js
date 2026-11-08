@@ -1,10 +1,11 @@
 // Castle Siege 3D - challenge panel UI.
 // Modal overlay: problem on the left, code editor on the right. Run checks
 // the visible tests first; when they all pass, the hidden tests run too.
-// All tests passing shows the success state with a "Place building" button
-// that calls the onSolved callback given to openChallenge. Wrong attempts
-// cost nothing: the player can retry or close freely. While the panel is
-// open the game simulation is paused through window.__castle.
+// All tests passing shows the success state with a button that calls the
+// onSolved callback given to openChallenge: "Place building" for buildings,
+// "Train soldier" for the soldier challenge. Wrong attempts cost nothing:
+// the player can retry or close freely. While the panel is open the game
+// simulation is paused through window.__castle.
 
 import { pickChallenge } from './challenges.js';
 import { runChallenge } from './challengeRunner.js';
@@ -84,7 +85,11 @@ export function openChallenge(kind, callback) {
   const badge = $('challenge-difficulty');
   badge.textContent = challenge.difficulty;
   badge.className = 'challenge-badge challenge-badge-' + challenge.difficulty.toLowerCase().replace(/[^a-z]/g, '');
-  $('challenge-kind').textContent = 'Build: ' + kind;
+  $('challenge-kind').textContent = kind === 'soldier' ? 'Train: soldier' : 'Build: ' + kind;
+  $('challenge-place-btn').textContent = kind === 'soldier' ? 'Train soldier' : 'Place building';
+  $('challenge-success-text').textContent = kind === 'soldier'
+    ? 'Challenge solved. Your soldier is ready to train.'
+    : 'Challenge solved. Your building is ready.';
   $('challenge-story').textContent = challenge.story;
   $('challenge-description').textContent = challenge.description;
 
