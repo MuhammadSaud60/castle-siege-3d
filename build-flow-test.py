@@ -185,6 +185,9 @@ with sync_playwright() as p:
 
     page.goto(URL, wait_until="domcontentloaded")
     page.wait_for_timeout(2500)
+    # The start screen (Phase 3) covers the HUD until Start is clicked.
+    page.click("#btn-start")
+    page.wait_for_timeout(400)
     check("canvas present", page.evaluate("() => !!document.querySelector('#app canvas')"))
     check("openChallenge exposed", page.evaluate("() => typeof window.__castle.openChallenge === 'function'"))
 
@@ -284,8 +287,21 @@ with sync_playwright() as p:
               after_place["built"] == before_place["built"] + 1
               and after_place["builtKinds"].count(kind) == before_place["builtKinds"].count(kind) + 1,
               {"before": before_place["built"], "after": after_place["built"]})
-        # Placement mode stays armed for the next building (existing behaviour).
-        check(f"{kind}: placement stays armed after placing", after_place["placing"] == kind, after_place["placing"])
+        # One solve buys one placement (Phase 4 fix): placing ends after
+        # the building lands, and the next building needs a fresh challenge.
+        check(f"{kind}: placement ends after placing (one solve, one building)",
+              after_place["placing"] is None, after_place["placing"])
+        # Top up first: after all six placements the fresh game's purse is
+        # nearly empty, and a second barracks (30 Wood, 20 Stone) would be
+        # refused as unaffordable instead of opening its challenge.
+        page.evaluate("() => { window.__castle.state.wood = 200; window.__castle.state.stone = 200; window.__castle.state.gold = 200; }")
+        page.click(f"#btn-build-{kind}")
+        page.wait_for_timeout(400)
+        check(f"{kind}: next click opens a fresh challenge",
+              page.evaluate("() => !document.getElementById('challenge-overlay').classList.contains('hidden')"))
+        if page.evaluate("() => !document.getElementById('challenge-overlay').classList.contains('hidden')"):
+            page.click("#challenge-close")
+            page.wait_for_timeout(200)
 
     # 3. Cancel placement after a solve: grant consumed, next click is a fresh challenge.
     page.evaluate("() => { window.__castle.state.wood = 200; window.__castle.state.stone = 200; window.__castle.state.gold = 200; }")
@@ -463,6 +479,8 @@ with sync_playwright() as p:
     check("wall drag: 4 segments placed along the drag", walls_added == 4, walls_added)
     ok, detail = expect_resources(before_drag, after_drag, {"stone": 10 * walls_added}, "wall")
     check("wall drag: per-segment cost deducted (10 Stone each)", ok, detail)
+    check("wall drag: one drag spends the grant (placement ends)",
+          page.evaluate("() => window.__castle.placing().kind") is None)
 
     browser.close()
 

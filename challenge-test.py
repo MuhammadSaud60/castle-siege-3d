@@ -70,6 +70,10 @@ with sync_playwright() as p:
     page.wait_for_timeout(2500)
     check("canvas present", page.evaluate("() => !!document.querySelector('#app canvas')"))
     check("openChallenge exposed", page.evaluate("() => typeof window.__castle.openChallenge === 'function'"))
+    # Phase 3 added a start screen: the game is paused until Start, and the
+    # Next Wave button does nothing before it, so start the game first.
+    page.click("#btn-start")
+    page.wait_for_timeout(500)
 
     # 1. Panel opens for every one of the 7 kinds (one in-page pass).
     kinds = page.evaluate("""async () => {
@@ -248,8 +252,10 @@ with sync_playwright() as p:
     check("challengeOpen flag true while open", pause.get("flagOpen") is True)
     check("enemy frozen while panel open", pause.get("frozenDist") == 0, pause)
     check("enemy moves again after close", (pause.get("resumedDist") or 0) > 0.5, pause)
-    check("gold frozen while panel open", pause.get("goldDuring") == pause.get("goldBefore"), pause)
-    check("gold ticks again after close", pause.get("goldAfter") > pause.get("goldDuring"), pause)
+    check("gold frozen while panel open",
+          pause.get("spawned") is True and pause.get("goldDuring") == pause.get("goldBefore"), pause)
+    check("gold ticks again after close",
+          (pause.get("goldAfter") or 0) > (pause.get("goldDuring") or 0), pause)
 
     # 6. All 21 challenges pass against reference solutions (visible + hidden).
     solved_ids = []

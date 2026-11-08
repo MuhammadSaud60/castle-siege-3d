@@ -162,7 +162,10 @@ const COSTS = {
 };
 
 const TOWER_RANGE = 26;
-const TOWER_FIRE_INTERVAL = 0.8;
+const TOWER_FIRE_INTERVAL = 1.0; // Balance (Phase 4): 0.8 gave towers about
+// three times the damage the late waves need, so a 6-tower castle won wave
+// 10 without a scratch. One arrow a second still kills a foot soldier in
+// two hits, but the late waves now leak enough to pressure the keep.
 const ARROW_SPEED = 32;
 
 // Build limit: wall, house, farm and tower may only be placed within
@@ -1929,7 +1932,7 @@ function placeBarracksAt(x, z) {
   state.buildingsBuilt += 1;
   buildingGroups.set(rec, g);
   updateArmyDisplay();
-  setStatus('Barracks built at ' + gx + ', ' + gz + '. Army cap is now ' + armyCap() + ' — soldiers can be trained');
+  setStatus('Barracks built at ' + gx + ', ' + gz + '. Army cap is now ' + armyCap() + '. Soldiers can be trained');
 }
 
 // Build area: a circle around the keep, not the old 200x200 square.
@@ -2671,7 +2674,7 @@ function updateArmyDisplay() {
   const noBarracks = state.barracksCount === 0;
   trainBtn.disabled = noBarracks;
   trainBtn.title = noBarracks
-    ? 'Train Soldier — build a Barracks first'
+    ? 'Train Soldier: build a Barracks first'
     : 'Train Soldier (20 Gold)';
   trainBtn.setAttribute('aria-label', trainBtn.title);
 }
@@ -2730,10 +2733,12 @@ function killSoldier(s) {
 }
 
 function spawnWave(count) {
-  // Wave 1 is foot soldiers only. From wave 2 cavalry ride in, from
-  // wave 3 brutes join them; the mix scales with the wave number.
-  const cavCount = state.wave >= 2 ? Math.min(state.wave - 1, 3) : 0;
-  const bruteCount = state.wave >= 3 ? Math.min(state.wave - 2, 2) : 0;
+  // Wave 1 is foot soldiers only. Cavalry ride in from wave 3 and brutes
+  // from wave 4 (both one wave later than before: a wave-2 cavalry could
+  // kill a two-tower castle on its own), and up to 4 cavalry and 3 brutes
+  // join the late waves, so the last waves stay dangerous.
+  const cavCount = state.wave >= 3 ? Math.min(state.wave - 2, 4) : 0;
+  const bruteCount = state.wave >= 4 ? Math.min(state.wave - 3, 3) : 0;
   const types = [];
   for (let i = 0; i < count - cavCount - bruteCount; i++) types.push('soldier');
   for (let i = 0; i < cavCount; i++) types.push('cavalry');
@@ -2771,7 +2776,11 @@ waveBtn.addEventListener('click', () => {
   }
   cancelPlacing();
   state.wave += 1;
-  const count = 3 + (state.wave - 1) * 2;
+  // Balance (Phase 4): 3 + 2 per wave up to wave 5, then one extra enemy
+  // per wave after that (wave 6 has 14, wave 10 has 26). The early waves
+  // stay learnable and the late waves keep growing, so a finished castle
+  // still has to fight for the win instead of watching a victory lap.
+  const count = 3 + (state.wave - 1) * 2 + Math.max(0, state.wave - 5);
   state.waveActive = true;
   spawnWave(count);
   playSound('horn');
@@ -2782,6 +2791,11 @@ function damageKeep(amount) {
   state.keepHp = Math.max(0, state.keepHp - amount);
   updateHUD();
   if (state.keepHp <= 0) {
+    // Guard: several enemies can land a swing in the same update pass,
+    // so damageKeep can be called again after the castle has already
+    // fallen. Without this, the second call re-fills the game-over stats
+    // with waveActive already false and reports one wave too many.
+    if (gameOver) return;
     const wavesCleared = state.waveActive ? state.wave - 1 : state.wave;
     state.waveActive = false;
     gameOver = true;
@@ -3576,13 +3590,15 @@ renderer.domElement.addEventListener('pointerup', (e) => {
     const { x0, z0, x1, z1 } = wallDrag;
     endWallDrag();
     if (wasClick) {
-      // A click without a drag is one wall segment, as before.
+      // A click without a drag is one wall segment, as before. One solve
+      // buys one placement: a placed segment spends the grant.
       if (state.placing) {
         const p = groundPointFromEvent(e);
-        if (p) placeAt(state.placing, p.x, p.z);
+        if (p && placeAt(state.placing, p.x, p.z)) cancelPlacing();
       }
     } else {
-      placeWallLine(x0, z0, x1, z1);
+      // One drag draws one wall line, and that line spends the grant.
+      if (placeWallLine(x0, z0, x1, z1) > 0) cancelPlacing();
     }
     return;
   }
@@ -3603,8 +3619,11 @@ renderer.domElement.addEventListener('pointerup', (e) => {
     return;
   }
   if (state.placing) {
+    // One solve buys one placement: a placed building spends the grant,
+    // so the next building of this kind needs a fresh challenge. A failed
+    // placement (too far, water, unaffordable) keeps the grant.
     const p = groundPointFromEvent(e);
-    if (p) placeAt(state.placing, p.x, p.z);
+    if (p && placeAt(state.placing, p.x, p.z)) cancelPlacing();
     return;
   }
   setPointerFromEvent(e);

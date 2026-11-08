@@ -289,7 +289,7 @@ with sync_playwright() as p:
     page.click("#btn-next-wave")
     page.wait_for_timeout(1000)
     s7 = snap(page)
-    check("wave 10 started", s7["wave"] == 10 and s7["waveActive"] and s7["enemies"] == 21, json.dumps(s7))
+    check("wave 10 started", s7["wave"] == 10 and s7["waveActive"] and s7["enemies"] == 26, json.dumps(s7))  # 26 since the Phase 4 balance pass (was 21)
     page.evaluate("() => window.__castle.clearEnemies()")
     won = False
     for _ in range(20):
