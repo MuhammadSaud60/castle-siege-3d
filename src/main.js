@@ -1840,64 +1840,151 @@ function limbMesh(w, h, d, mat, px, py) {
   return pivot;
 }
 
+// Extra materials for the detailed enemy models: gold trim, leather,
+// dark leather, eyes, cream tabards, bright plume colours, saddle cloth
+// and the brute's glowing eyes.
+const trimGoldMat = new THREE.MeshStandardMaterial({ color: 0xc9a227, roughness: 0.35, metalness: 0.6 });
+const leatherMat = new THREE.MeshStandardMaterial({ color: 0x6b4a2f, roughness: 1 });
+const darkLeatherMat = new THREE.MeshStandardMaterial({ color: 0x3a2a1a, roughness: 1 });
+const eyeMat = new THREE.MeshStandardMaterial({ color: 0x1a1210, roughness: 1 });
+const tabardMat = new THREE.MeshStandardMaterial({ color: 0xd8cdb0, roughness: 0.95 });
+const plumeMats = [
+  new THREE.MeshStandardMaterial({ color: 0xa32a22, roughness: 0.9 }), // red crest
+  new THREE.MeshStandardMaterial({ color: 0x2e5a9e, roughness: 0.9 }), // blue crest
+  new THREE.MeshStandardMaterial({ color: 0x7a8e3a, roughness: 0.9 }), // olive crest
+];
+const saddleMat = new THREE.MeshStandardMaterial({ color: 0x6e1f1f, roughness: 0.95 });
+const bruteEyeMat = new THREE.MeshStandardMaterial({ color: 0xff5a2a, roughness: 0.6, emissive: 0x881100, emissiveIntensity: 0.7 });
+
+// Generic mesh adder for spheres, cones and other geometries.
+function part(geo, mat, x, y, z, parent = scene) {
+  const m = new THREE.Mesh(geo, mat);
+  m.position.set(x, y, z);
+  m.castShadow = true;
+  m.receiveShadow = true;
+  parent.add(m);
+  return m;
+}
+
+// A thin rod between two points (reins, straps).
+function strut(ax, ay, az, bx, by, bz, r, mat, parent = scene) {
+  const a = new THREE.Vector3(ax, ay, az);
+  const b = new THREE.Vector3(bx, by, bz);
+  const len = a.distanceTo(b);
+  const m = new THREE.Mesh(new THREE.CylinderGeometry(r, r, len, 6), mat);
+  m.position.copy(a).lerp(b, 0.5);
+  m.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), b.clone().sub(a).normalize());
+  m.castShadow = true;
+  parent.add(m);
+  return m;
+}
+
 function createSoldier(variant) {
   const v = variant % 3;
   const tunic = enemyTunicMats[v];
+  const plume = plumeMats[v];
   const g = new THREE.Group();
-  // Legs (swing from the hip while walking).
-  const legL = limbMesh(0.26, 0.9, 0.3, enemyLegMat, -0.22, 0.95);
-  const legR = limbMesh(0.26, 0.9, 0.3, enemyLegMat, 0.22, 0.95);
+  // Legs: thigh (the pivot mesh), shin and boot, swinging from the hip.
+  function soldierLeg(px) {
+    const pivot = limbMesh(0.24, 0.5, 0.28, enemyLegMat, px, 0.95);
+    box(0.2, 0.42, 0.24, enemyLegMat, 0, -0.66, 0, pivot); // shin
+    box(0.24, 0.14, 0.42, darkMat, 0, -0.88, 0.08, pivot); // boot, toe forward
+    return pivot;
+  }
+  const legL = soldierLeg(-0.22);
+  const legR = soldierLeg(0.22);
   g.add(legL, legR);
-  // Torso with tunic and belt.
-  box(1.05, 1.0, 0.62, tunic, 0, 1.45, 0, g);
-  box(1.08, 0.12, 0.65, darkMat, 0, 1.0, 0, g);
-  // Left arm, carrying the shield on the forearm.
-  const armL = limbMesh(0.22, 0.8, 0.24, tunic, -0.63, 1.88);
+  // Torso: tapered tunic (wider at the waist), a flared skirt, a belt with
+  // a gold buckle, gold hem trim, shoulder pads and a tabard panel.
+  const torso = cylinder(0.5, 0.62, 0.95, tunic, 0, 1.45, 0, g, 4);
+  torso.rotation.y = Math.PI / 4;
+  const skirt = cylinder(0.6, 0.78, 0.5, tunic, 0, 0.78, 0, g, 4);
+  skirt.rotation.y = Math.PI / 4;
+  const hem = cylinder(0.79, 0.79, 0.05, trimGoldMat, 0, 0.55, 0, g, 4);
+  hem.rotation.y = Math.PI / 4;
+  box(0.98, 0.14, 0.9, leatherMat, 0, 1.02, 0, g); // belt
+  box(0.16, 0.12, 0.05, trimGoldMat, 0, 1.02, 0.46, g); // buckle
+  for (const side of [1, -1]) {
+    const pad = part(new THREE.SphereGeometry(0.3, 10, 8), enemyMetalMat, side * 0.55, 1.92, 0, g);
+    pad.scale.set(1, 0.65, 1); // shoulder pad
+  }
+  // Cream tabard down the front, tilted to match the torso taper, with a
+  // tunic-coloured diamond emblem.
+  const tabard = box(0.44, 0.7, 0.05, tabardMat, 0, 1.55, 0.4, g);
+  tabard.rotation.x = 0.08;
+  const emblem = box(0.14, 0.14, 0.04, tunic, 0, 1.62, 0.43, g);
+  emblem.rotation.z = Math.PI / 4;
+  emblem.rotation.x = 0.08;
+  // Left arm: upper arm, forearm, hand, shield on the forearm.
+  const armL = limbMesh(0.2, 0.45, 0.22, tunic, -0.63, 1.88);
+  box(0.17, 0.38, 0.19, enemySkinMat, 0, -0.62, 0, armL); // forearm
+  box(0.16, 0.14, 0.18, enemySkinMat, 0, -0.85, 0, armL); // hand
   if (v === 1) {
-    // Kite shield: tall board.
+    // Kite shield: tall board with a gold chevron and centre stripe.
     const shield = new THREE.Mesh(new THREE.BoxGeometry(0.72, 1.0, 0.08), enemyShieldMat);
     shield.position.set(0, -0.55, 0.24);
     shield.castShadow = true;
     armL.add(shield);
+    const chevL = box(0.34, 0.09, 0.03, trimGoldMat, -0.14, -0.45, 0.29, armL);
+    chevL.rotation.z = 0.6;
+    const chevR = box(0.34, 0.09, 0.03, trimGoldMat, 0.14, -0.45, 0.29, armL);
+    chevR.rotation.z = -0.6;
+    box(0.09, 0.85, 0.03, trimGoldMat, 0, -0.55, 0.29, armL); // centre stripe
   } else {
-    // Round shield with a metal boss.
+    // Round shield with a metal boss and a gold ring emblem.
     const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.52, 0.52, 0.08, 14), enemyShieldMat);
     shield.rotation.x = Math.PI / 2;
     shield.position.set(0, -0.55, 0.24);
     shield.castShadow = true;
     armL.add(shield);
+    cylinder(0.36, 0.36, 0.03, trimGoldMat, 0, -0.55, 0.29, armL, 14);
     const boss = new THREE.Mesh(new THREE.SphereGeometry(0.14, 10, 8), enemyMetalMat);
-    boss.position.set(0, -0.55, 0.32);
+    boss.position.set(0, -0.55, 0.33);
     armL.add(boss);
   }
   g.add(armL);
-  // Right arm, carrying the weapon.
-  const armR = limbMesh(0.22, 0.8, 0.24, tunic, 0.63, 1.88);
+  // Right arm: upper arm, forearm, hand, weapon in the hand.
+  const armR = limbMesh(0.2, 0.45, 0.22, tunic, 0.63, 1.88);
+  box(0.17, 0.38, 0.19, enemySkinMat, 0, -0.62, 0, armR); // forearm
+  box(0.16, 0.14, 0.18, enemySkinMat, 0, -0.85, 0, armR); // hand
   if (v === 1) {
-    // Sword: blade, guard and grip, held down at the side.
-    box(0.12, 1.05, 0.05, enemyMetalMat, 0, -0.35, 0.08, armR);
-    box(0.38, 0.08, 0.1, darkMat, 0, 0.22, 0.08, armR);
-    cylinder(0.05, 0.05, 0.25, darkMat, 0, 0.35, 0.08, armR, 6);
+    // Sword: held angled forward so the point clears the ground, with a
+    // gold guard and pommel.
+    const sword = new THREE.Group();
+    sword.position.set(0, -0.85, 0.08);
+    sword.rotation.x = -0.5;
+    cylinder(0.05, 0.05, 0.22, darkMat, 0, 0, 0, sword, 6); // grip
+    part(new THREE.SphereGeometry(0.07, 8, 6), trimGoldMat, 0, 0.14, 0, sword); // pommel
+    box(0.42, 0.07, 0.1, trimGoldMat, 0, -0.14, 0, sword); // guard
+    box(0.1, 0.85, 0.04, enemyMetalMat, 0, -0.6, 0, sword); // blade
+    const tip = part(new THREE.ConeGeometry(0.07, 0.2, 4), enemyMetalMat, 0, -1.12, 0, sword);
+    tip.rotation.x = Math.PI;
+    armR.add(sword);
   } else {
-    // Spear: long shaft with a metal tip, held upright.
-    cylinder(0.05, 0.05, 2.6, woodMat, 0, 0.35, 0.1, armR, 6);
-    const tip = new THREE.Mesh(new THREE.ConeGeometry(0.09, 0.35, 6), enemyMetalMat);
-    tip.position.set(0, 1.8, 0.1);
-    tip.castShadow = true;
-    armR.add(tip);
+    // Spear: long shaft with a leaf-shaped tip and a gold collar, held upright.
+    cylinder(0.05, 0.05, 2.6, leatherMat, 0, 0.35, 0.1, armR, 6);
+    cylinder(0.07, 0.07, 0.08, trimGoldMat, 0, 1.55, 0.1, armR, 6); // collar
+    const blade = part(new THREE.ConeGeometry(0.1, 0.45, 6), enemyMetalMat, 0, 1.85, 0.1, armR);
+    blade.scale.z = 0.4; // flattened leaf blade
+    const butt = part(new THREE.ConeGeometry(0.06, 0.2, 6), enemyMetalMat, 0, -1.0, 0.1, armR);
+    butt.rotation.x = Math.PI;
   }
   g.add(armR);
-  // Head with skin, plus a helmet that differs per variant.
-  box(0.55, 0.55, 0.55, enemySkinMat, 0, 2.22, 0, g);
+  // Head with skin and eyes, plus a helmet that differs per variant.
+  box(0.5, 0.5, 0.5, enemySkinMat, 0, 2.22, 0, g);
+  box(0.07, 0.09, 0.03, eyeMat, -0.11, 2.26, 0.26, g);
+  box(0.07, 0.09, 0.03, eyeMat, 0.11, 2.26, 0.26, g);
   if (v === 0) {
-    // Pointed kettle helm with a brim.
+    // Pointed kettle helm with a brim, a nasal guard and a red crest.
     const helm = new THREE.Mesh(new THREE.ConeGeometry(0.42, 0.55, 8), enemyMetalMat);
     helm.position.set(0, 2.72, 0);
     helm.castShadow = true;
     g.add(helm);
     cylinder(0.44, 0.44, 0.06, enemyMetalMat, 0, 2.5, 0, g, 12);
+    box(0.07, 0.3, 0.05, enemyMetalMat, 0, 2.32, 0.26, g); // nasal guard
+    box(0.06, 0.3, 0.5, plume, 0, 2.98, 0, g); // red crest along the ridge
   } else if (v === 1) {
-    // Dome helm with a brim.
+    // Dome helm with a brim, cheek guards and a blue crest.
     const helm = new THREE.Mesh(
       new THREE.SphereGeometry(0.34, 12, 8, 0, Math.PI * 2, 0, Math.PI / 2),
       enemyMetalMat,
@@ -1906,10 +1993,15 @@ function createSoldier(variant) {
     helm.castShadow = true;
     g.add(helm);
     cylinder(0.4, 0.4, 0.06, enemyMetalMat, 0, 2.5, 0, g, 12);
+    box(0.05, 0.32, 0.28, enemyMetalMat, -0.27, 2.12, 0, g); // cheek guard
+    box(0.05, 0.32, 0.28, enemyMetalMat, 0.27, 2.12, 0, g); // cheek guard
+    box(0.06, 0.3, 0.5, plume, 0, 2.92, 0, g); // blue crest
   } else {
-    // Nasal helm: flat cap with a nose guard strip.
+    // Nasal helm: flat cap with a nose guard strip, a green tuft and a beard.
     box(0.6, 0.16, 0.6, enemyMetalMat, 0, 2.52, 0, g);
-    box(0.08, 0.38, 0.06, enemyMetalMat, 0, 2.32, 0.29, g);
+    box(0.08, 0.38, 0.06, enemyMetalMat, 0, 2.32, 0.29, g); // nasal guard
+    part(new THREE.ConeGeometry(0.14, 0.3, 6), plume, 0, 2.68, 0, g); // tuft
+    box(0.32, 0.2, 0.08, darkLeatherMat, 0, 1.98, 0.24, g); // beard
   }
   return { group: g, limbs: { legL, legR, armL, armR } };
 }
@@ -1938,69 +2030,97 @@ const bruteHornMat = new THREE.MeshStandardMaterial({ color: 0xd8cdb8, roughness
 
 function createCavalry() {
   const g = new THREE.Group();
-  // Horse body, neck and head (faces +Z, like the soldiers).
-  box(0.85, 0.85, 2.1, horseBodyMat, 0, 1.5, 0, g);
-  const neck = new THREE.Group();
-  neck.position.set(0, 1.8, 0.85);
-  const neckMesh = new THREE.Mesh(new THREE.BoxGeometry(0.5, 1.0, 0.5), horseBodyMat);
-  neckMesh.position.y = 0.4;
-  neckMesh.rotation.x = 0.5;
-  neckMesh.castShadow = true;
-  neck.add(neckMesh);
-  const head = new THREE.Mesh(new THREE.BoxGeometry(0.42, 0.42, 0.9), horseBodyMat);
-  head.position.set(0, 0.95, 0.45);
-  head.castShadow = true;
-  neck.add(head);
+  // Horse barrel: a rounded body, a chest and hindquarters so the horse
+  // reads as a horse, not a box.
+  const barrel = part(new THREE.CylinderGeometry(0.48, 0.48, 1.9, 12), horseBodyMat, 0, 1.5, 0, g);
+  barrel.rotation.x = Math.PI / 2;
+  const chest = part(new THREE.SphereGeometry(0.5, 12, 10), horseBodyMat, 0, 1.5, 0.9, g);
+  chest.scale.set(0.95, 1.05, 1);
+  const rump = part(new THREE.SphereGeometry(0.5, 12, 10), horseBodyMat, 0, 1.55, -0.9, g);
+  rump.scale.set(0.95, 1.0, 1);
+  // Neck: tapered and leaning forward; head with a long skull, a muzzle,
+  // ears, a forelock and eyes.
+  const neck = part(new THREE.CylinderGeometry(0.2, 0.38, 1.1, 10), horseBodyMat, 0, 2.05, 1.05, g);
+  neck.rotation.x = 0.55;
+  const skull = box(0.36, 0.42, 0.8, horseBodyMat, 0, 2.45, 1.45, g);
+  skull.rotation.x = 0.9;
+  const muzzle = box(0.28, 0.3, 0.35, horseDarkMat, 0, 2.3, 1.85, g);
+  muzzle.rotation.x = 0.9;
   for (const side of [1, -1]) {
-    const ear = new THREE.Mesh(new THREE.BoxGeometry(0.1, 0.28, 0.08), horseDarkMat);
-    ear.position.set(side * 0.14, 1.15, 0.3);
-    neck.add(ear);
+    const ear = part(new THREE.ConeGeometry(0.08, 0.28, 6), horseDarkMat, side * 0.13, 2.72, 1.2, g);
+    ear.rotation.x = 0.3;
+    box(0.06, 0.08, 0.03, eyeMat, side * 0.19, 2.5, 1.5, g); // eye
   }
-  g.add(neck);
-  // Mane along the neck, tail at the back.
-  box(0.16, 0.9, 0.5, horseDarkMat, 0, 2.15, 0.55, g);
-  const tail = new THREE.Group();
-  tail.position.set(0, 1.75, -1.05);
-  const tailMesh = new THREE.Mesh(new THREE.BoxGeometry(0.18, 0.9, 0.18), horseDarkMat);
-  tailMesh.position.y = -0.4;
-  tailMesh.rotation.x = 0.35;
-  tailMesh.castShadow = true;
-  tail.add(tailMesh);
-  g.add(tail);
-  // Legs: the front pair and the back pair swing together (gallop). The
-  // pivots are exposed as legL/legR so the walk and attack code works
-  // unchanged.
+  const forelock = box(0.2, 0.25, 0.1, horseDarkMat, 0, 2.62, 1.35, g);
+  forelock.rotation.x = 0.9;
+  // Mane stepping down the neck crest, and a two-part tail.
+  box(0.14, 0.35, 0.3, horseDarkMat, 0, 2.3, 0.85, g).rotation.x = 0.55;
+  box(0.14, 0.35, 0.3, horseDarkMat, 0, 2.12, 0.68, g).rotation.x = 0.55;
+  box(0.14, 0.35, 0.3, horseDarkMat, 0, 1.95, 0.52, g).rotation.x = 0.55;
+  const tailTop = part(new THREE.CylinderGeometry(0.1, 0.07, 0.8, 8), horseDarkMat, 0, 1.45, -1.2, g);
+  tailTop.rotation.x = 0.35;
+  const tailTip = part(new THREE.CylinderGeometry(0.07, 0.03, 0.6, 8), horseDarkMat, 0, 0.95, -1.45, g);
+  tailTip.rotation.x = 0.15;
+  // Saddle: cloth, side flaps and gold trim along the flap edges.
+  box(1.05, 0.08, 1.15, saddleMat, 0, 1.98, 0, g);
+  box(0.05, 0.5, 1.0, saddleMat, -0.55, 1.72, 0, g);
+  box(0.05, 0.5, 1.0, saddleMat, 0.55, 1.72, 0, g);
+  box(0.06, 0.05, 1.0, trimGoldMat, -0.55, 1.48, 0, g);
+  box(0.06, 0.05, 1.0, trimGoldMat, 0.55, 1.48, 0, g);
+  // Legs: the front pair and the back pair swing together (gallop). Each
+  // leg has an upper leg, a lower leg and a hoof; the pivots are exposed
+  // as legL/legR so the walk and attack code works unchanged.
   function horseLegs(z) {
     const pivot = new THREE.Group();
     pivot.position.set(0, 1.2, z);
     for (const side of [1, -1]) {
-      const leg = new THREE.Mesh(new THREE.BoxGeometry(0.2, 1.2, 0.2), horseDarkMat);
-      leg.position.set(side * 0.28, -0.6, 0);
-      leg.castShadow = true;
-      pivot.add(leg);
+      box(0.18, 0.6, 0.2, horseBodyMat, side * 0.28, -0.3, 0, pivot); // upper leg
+      box(0.14, 0.55, 0.16, horseDarkMat, side * 0.28, -0.85, 0, pivot); // lower leg
+      box(0.18, 0.12, 0.24, darkMat, side * 0.28, -1.14, 0.02, pivot); // hoof
     }
     g.add(pivot);
     return pivot;
   }
   const legL = horseLegs(0.75);
   const legR = horseLegs(-0.75);
-  // Rider: torso, helmeted head, shield arm and lance arm, seated on the horse.
-  box(0.95, 0.9, 0.55, riderTunicMat, 0, 2.35, 0, g);
-  box(0.5, 0.5, 0.5, enemySkinMat, 0, 3.05, 0, g);
-  const helm = new THREE.Mesh(new THREE.ConeGeometry(0.38, 0.5, 8), enemyMetalMat);
-  helm.position.set(0, 3.5, 0);
-  helm.castShadow = true;
-  g.add(helm);
-  const armL = limbMesh(0.2, 0.7, 0.22, riderTunicMat, -0.55, 2.75);
+  // Rider: torso leaning slightly forward, belt, legs over the saddle.
+  const riderTorso = cylinder(0.42, 0.52, 0.9, riderTunicMat, 0, 2.35, 0, g, 4);
+  riderTorso.rotation.y = Math.PI / 4;
+  riderTorso.rotation.x = 0.12;
+  box(0.8, 0.1, 0.78, leatherMat, 0, 2.0, 0.05, g); // rider belt
+  for (const side of [1, -1]) {
+    const thigh = box(0.2, 0.45, 0.22, riderTunicMat, side * 0.48, 2.05, 0.35, g);
+    thigh.rotation.x = -0.9; // thigh forward over the saddle
+    const shin = box(0.17, 0.45, 0.19, enemyLegMat, side * 0.5, 1.65, 0.55, g);
+    shin.rotation.x = 0.25;
+    box(0.18, 0.12, 0.3, darkMat, side * 0.5, 1.42, 0.6, g); // boot
+  }
+  // Rider head: skin, eyes, pointed helm with a red crest.
+  box(0.45, 0.45, 0.45, enemySkinMat, 0, 3.02, 0.05, g);
+  box(0.06, 0.08, 0.03, eyeMat, -0.1, 3.06, 0.28, g);
+  box(0.06, 0.08, 0.03, eyeMat, 0.1, 3.06, 0.28, g);
+  const riderHelm = part(new THREE.ConeGeometry(0.36, 0.5, 8), enemyMetalMat, 0, 3.42, 0.05, g);
+  riderHelm.castShadow = true;
+  box(0.06, 0.28, 0.45, plumeMats[0], 0, 3.62, 0.05, g); // red crest
+  // Reins from the horse's mouth to the rider's left hand.
+  strut(-0.12, 2.35, 1.7, -0.5, 2.5, 0.45, 0.02, darkLeatherMat, g);
+  strut(0.12, 2.35, 1.7, 0.5, 2.5, 0.45, 0.02, darkLeatherMat, g);
+  // Left arm with a round shield and a gold ring emblem.
+  const armL = limbMesh(0.2, 0.45, 0.22, riderTunicMat, -0.55, 2.75);
+  box(0.17, 0.38, 0.19, enemySkinMat, 0, -0.62, 0, armL); // forearm
+  box(0.16, 0.14, 0.18, enemySkinMat, 0, -0.85, 0, armL); // hand
   const shield = new THREE.Mesh(new THREE.CylinderGeometry(0.45, 0.45, 0.07, 14), enemyShieldMat);
   shield.rotation.x = Math.PI / 2;
   shield.position.set(0, -0.5, 0.22);
   shield.castShadow = true;
   armL.add(shield);
+  cylinder(0.3, 0.3, 0.03, trimGoldMat, 0, -0.5, 0.27, armL, 14);
   g.add(armL);
-  const armR = limbMesh(0.2, 0.7, 0.22, riderTunicMat, 0.55, 2.75);
-  // Lance: long shaft held forward, couched under the arm.
-  const lance = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.8, 6), woodMat);
+  // Right arm with the lance: long shaft, metal tip and a red pennon.
+  const armR = limbMesh(0.2, 0.45, 0.22, riderTunicMat, 0.55, 2.75);
+  box(0.17, 0.38, 0.19, enemySkinMat, 0, -0.62, 0, armR); // forearm
+  box(0.16, 0.14, 0.18, enemySkinMat, 0, -0.85, 0, armR); // hand
+  const lance = new THREE.Mesh(new THREE.CylinderGeometry(0.05, 0.05, 2.8, 6), leatherMat);
   lance.rotation.x = Math.PI / 2 - 0.25;
   lance.position.set(0, -0.3, 0.6);
   lance.castShadow = true;
@@ -2010,40 +2130,92 @@ function createCavalry() {
   lanceTip.position.set(0, -0.62, 1.85);
   lanceTip.castShadow = true;
   armR.add(lanceTip);
+  const pennon = box(0.02, 0.3, 0.6, plumeMats[0], 0, -0.5, 1.3, armR);
+  pennon.rotation.x = Math.PI / 2 - 0.25;
   g.add(armR);
   return { group: g, limbs: { legL, legR, armL, armR } };
 }
 
 function createBrute() {
-  // A bigger, armoured soldier: thicker limbs, dark plate, a horned
-  // helm and a heavy double-headed axe. Built the same way as a foot
-  // soldier, then scaled up, so the walk and attack code works unchanged.
+  // A bigger, armoured soldier: plate torso, pauldrons, greaves, a horned
+  // helm with glowing eyes and a heavy double-headed axe. Built the same
+  // way as a foot soldier, then scaled up, so the walk and attack code
+  // works unchanged.
   const g = new THREE.Group();
-  const legL = limbMesh(0.34, 1.0, 0.38, bruteTunicMat, -0.26, 1.05);
-  const legR = limbMesh(0.34, 1.0, 0.38, bruteTunicMat, 0.26, 1.05);
+  // Legs: steel thigh, greave, knee spike and boot.
+  function bruteLeg(px) {
+    const pivot = limbMesh(0.3, 0.5, 0.34, bruteSteelMat, px, 1.05);
+    box(0.26, 0.45, 0.3, bruteSteelMat, 0, -0.7, 0, pivot); // greave
+    const spike = part(new THREE.ConeGeometry(0.07, 0.2, 6), enemyMetalMat, 0, -0.5, 0.2, pivot);
+    spike.rotation.x = Math.PI / 2; // knee spike, pointing forward
+    box(0.3, 0.16, 0.45, darkMat, 0, -0.95, 0.05, pivot); // boot
+    return pivot;
+  }
+  const legL = bruteLeg(-0.26);
+  const legR = bruteLeg(0.26);
   g.add(legL, legR);
-  box(1.35, 1.1, 0.8, bruteSteelMat, 0, 1.6, 0, g); // plate torso
-  box(1.38, 0.14, 0.83, darkMat, 0, 1.1, 0, g); // belt
-  const armL = limbMesh(0.28, 0.9, 0.3, bruteSteelMat, -0.78, 2.05);
-  const shield = new THREE.Mesh(new THREE.BoxGeometry(0.9, 1.2, 0.1), bruteSteelMat);
+  // Plate torso: tapered, with a chest ridge, rivets and a big belt.
+  const torso = cylinder(0.62, 0.78, 1.1, bruteSteelMat, 0, 1.6, 0, g, 4);
+  torso.rotation.y = Math.PI / 4;
+  box(0.1, 0.9, 0.06, enemyMetalMat, 0, 1.65, 0.5, g); // chest ridge
+  for (const [rx, ry] of [[-0.25, 1.85], [0.25, 1.85], [-0.25, 1.45], [0.25, 1.45]]) {
+    part(new THREE.SphereGeometry(0.05, 8, 6), trimGoldMat, rx, ry, 0.52, g); // rivet
+  }
+  box(1.3, 0.16, 1.15, darkMat, 0, 1.1, 0, g); // belt
+  box(0.24, 0.16, 0.06, trimGoldMat, 0, 1.1, 0.59, g); // buckle
+  // Fur collar and spiked pauldrons.
+  cylinder(0.5, 0.55, 0.18, darkLeatherMat, 0, 2.18, 0, g, 12);
+  for (const side of [1, -1]) {
+    const pauldron = part(new THREE.SphereGeometry(0.34, 12, 10), bruteSteelMat, side * 0.82, 2.08, 0, g);
+    pauldron.scale.set(1, 0.6, 1);
+    part(new THREE.ConeGeometry(0.09, 0.3, 6), enemyMetalMat, side * 0.82, 2.32, 0, g);
+  }
+  // Left arm: steel vambrace with a gold band, fist, and a tower shield
+  // with a gold stripe and boss.
+  const armL = limbMesh(0.26, 0.5, 0.28, bruteSteelMat, -0.78, 2.05);
+  box(0.28, 0.12, 0.3, trimGoldMat, 0, -0.45, 0, armL); // vambrace band
+  box(0.24, 0.2, 0.26, enemySkinMat, 0, -0.85, 0, armL); // fist
+  const shield = new THREE.Mesh(new THREE.BoxGeometry(0.95, 1.3, 0.1), bruteSteelMat);
   shield.position.set(0, -0.6, 0.26);
   shield.castShadow = true;
   armL.add(shield);
+  box(0.12, 1.2, 0.03, trimGoldMat, 0, -0.6, 0.32, armL); // stripe
+  const boss = new THREE.Mesh(new THREE.SphereGeometry(0.12, 10, 8), trimGoldMat);
+  boss.position.set(0, -0.6, 0.34);
+  armL.add(boss);
   g.add(armL);
-  const armR = limbMesh(0.28, 0.9, 0.3, bruteSteelMat, 0.78, 2.05);
-  // Double-headed axe: long shaft, two blades.
-  cylinder(0.06, 0.06, 2.4, woodMat, 0, -0.2, 0.1, armR, 6);
-  box(0.7, 0.5, 0.08, enemyMetalMat, 0, -1.2, 0.1, armR);
+  // Right arm: steel vambrace, fist, and the double-headed axe — two
+  // crescent blades and a top spike on a long shaft.
+  const armR = limbMesh(0.26, 0.5, 0.28, bruteSteelMat, 0.78, 2.05);
+  box(0.28, 0.12, 0.3, trimGoldMat, 0, -0.45, 0, armR); // vambrace band
+  box(0.24, 0.2, 0.26, enemySkinMat, 0, -0.85, 0, armR); // fist
+  cylinder(0.06, 0.06, 2.4, leatherMat, 0, -0.2, 0.1, armR, 6); // shaft
+  function axeBlade(angle) {
+    const holder = new THREE.Group();
+    holder.position.set(0, -1.15, 0.1);
+    holder.rotation.z = angle;
+    const disc = new THREE.Mesh(new THREE.CylinderGeometry(0.5, 0.5, 0.07, 12, 1, false, 0, Math.PI), enemyMetalMat);
+    disc.rotation.x = Math.PI / 2;
+    disc.castShadow = true;
+    holder.add(disc);
+    armR.add(holder);
+  }
+  axeBlade(0);
+  axeBlade(Math.PI);
+  part(new THREE.ConeGeometry(0.08, 0.35, 6), enemyMetalMat, 0, 1.05, 0.1, armR); // top spike
   g.add(armR);
-  // Head with a horned helm.
-  box(0.62, 0.6, 0.62, enemySkinMat, 0, 2.45, 0, g);
-  cylinder(0.46, 0.46, 0.12, bruteSteelMat, 0, 2.78, 0, g, 12);
+  // Head with a horned helm: two-part curved horns, a face slit and
+  // glowing eyes.
+  box(0.6, 0.58, 0.6, enemySkinMat, 0, 2.42, 0, g);
+  box(0.5, 0.1, 0.04, darkMat, 0, 2.45, 0.31, g); // face slit
+  box(0.07, 0.07, 0.03, bruteEyeMat, -0.12, 2.45, 0.32, g); // glowing eye
+  box(0.07, 0.07, 0.03, bruteEyeMat, 0.12, 2.45, 0.32, g); // glowing eye
+  cylinder(0.44, 0.44, 0.12, bruteSteelMat, 0, 2.74, 0, g, 12); // helm band
   for (const side of [1, -1]) {
-    const horn = new THREE.Mesh(new THREE.ConeGeometry(0.1, 0.5, 6), bruteHornMat);
-    horn.position.set(side * 0.5, 2.85, 0);
-    horn.rotation.z = side * -0.9;
-    horn.castShadow = true;
-    g.add(horn);
+    const hornBase = part(new THREE.ConeGeometry(0.11, 0.45, 6), bruteHornMat, side * 0.48, 2.85, 0, g);
+    hornBase.rotation.z = side * -0.9;
+    const hornTip = part(new THREE.ConeGeometry(0.08, 0.35, 6), bruteHornMat, side * 0.68, 3.05, 0, g);
+    hornTip.rotation.z = side * -0.4;
   }
   g.scale.setScalar(BRUTE_SCALE);
   return { group: g, limbs: { legL, legR, armL, armR } };
