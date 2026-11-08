@@ -795,15 +795,18 @@ function addMerlonsZ(parent, cz, topY, length, x, mat = stoneMat) {
 }
 
 // ---------------------------------------------------------------------------
-// Selection: every named building gets cloned materials so we can tint it
-// ---------------------------------------------------------------------------
+// Selection: ONLY the King is selectable. Buildings (wall, house, farm,
+// tower) and the keep are not selectable: selecting them did nothing,
+// and the big gold cube the old BoxHelper drew around them looked wrong.
+// The selected object is marked by a small flat ring on the ground
+// instead (the King's gold ring, kingSelectRing, shown while he is
+// selected) — no box, no tint.
 const selectables = [];
 
 function makeSelectable(group, name) {
   group.userData.selectName = name;
   group.traverse((o) => {
     if (o.isMesh) {
-      o.material = o.material.clone();
       o.userData.selectRoot = group;
     }
   });
@@ -811,35 +814,19 @@ function makeSelectable(group, name) {
 }
 
 let selected = null;
-const selectionBox = new THREE.BoxHelper(undefined, 0xffd34d);
-selectionBox.visible = false;
-scene.add(selectionBox);
 
 const selectedNameEl = document.getElementById('selected-name');
 
 function select(group) {
   deselect();
   selected = group;
-  group.traverse((o) => {
-    if (o.isMesh && o.material.emissive) {
-      o.material.emissive.setHex(0x7a5c00);
-    }
-  });
-  selectionBox.setFromObject(group);
-  selectionBox.visible = true;
   selectedNameEl.textContent = 'Selected: ' + group.userData.selectName;
 }
 
 function deselect() {
   if (!selected) return;
-  selected.traverse((o) => {
-    if (o.isMesh && o.material.emissive) {
-      o.material.emissive.setHex(0x000000);
-    }
-  });
   selected = null;
-  selectionBox.visible = false;
-  selectedNameEl.textContent = 'Click a building to select it';
+  selectedNameEl.textContent = 'Click the King to select him';
 }
 
 // ---------------------------------------------------------------------------
@@ -900,7 +887,7 @@ for (const bx of [-2.2, 2.2]) {
   banners.push(b);
 }
 scene.add(keep);
-makeSelectable(keep, 'Stone Keep');
+// The keep is not selectable: only the King is.
 
 // ---------------------------------------------------------------------------
 // Houses, trees, rocks (Phase 2). There is no pre-built village any more:
@@ -942,7 +929,6 @@ function house(x, z, i) {
   box(0.8, 1, 0.2, windowLitMat, x - 1.2, y + 1.7, z + 2.05, g);
   box(0.8, 1, 0.2, windowLitMat, x + 1.2, y + 1.7, z + 2.05, g);
   scene.add(g);
-  makeSelectable(g, 'House');
   return g;
 }
 
@@ -1584,7 +1570,6 @@ function placeWallAt(x, z) {
   g.position.set(gx, gy, gz);
   g.rotation.y = angle;
   scene.add(g);
-  makeSelectable(g, 'Wall Segment');
   const rec = { kind: 'wall', x: gx, z: gz, angle, hp: BUILDING_HP.wall, maxHp: BUILDING_HP.wall };
   built.push(rec);
   buildingGroups.set(rec, g);
@@ -1615,7 +1600,6 @@ function placeFarmAt(x, z) {
     box(5.4, 0.5, 0.8, cropMat, gx, gy + 0.6, gz + i * 1.8, g);
   }
   scene.add(g);
-  makeSelectable(g, 'Farm');
   state.farmCount += 1;
   const rec = { kind: 'farm', x: gx, z: gz, hp: BUILDING_HP.farm, maxHp: BUILDING_HP.farm };
   built.push(rec);
@@ -1635,7 +1619,6 @@ function placeTowerAt(x, z) {
     box(0.6, 0.5, 0.6, stoneMat, gx + Math.cos(a) * 1.8, gy + 6.7, gz + Math.sin(a) * 1.8, g);
   }
   scene.add(g);
-  makeSelectable(g, 'Tower');
   towers.push({ pos: new THREE.Vector3(gx, gy + 6.5, gz), cooldown: 0 });
   const rec = { kind: 'tower', x: gx, z: gz, hp: BUILDING_HP.tower, maxHp: BUILDING_HP.tower };
   built.push(rec);
